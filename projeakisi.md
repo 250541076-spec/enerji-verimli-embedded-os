@@ -672,6 +672,68 @@ Grafik arayüzlü araçlara göre daha teknik kullanım gerektirir.
 
 8.2 OpenOCD
 OpenOCD, JTAG/SWD üzerinden hedef donanım ile bağlantı kurulmasını sağlar.
+
+---------------------------------------------------------------------------------------------------------------------------------
+
+## Enerji Verimli İşletim Sistemi Mimari Tasarım Dokümanı
+Bu doküman, ARM Cortex-M mimarisi üzerinde çalışacak olan enerji verimli gerçek zamanlı işletim
+sisteminin (RTOS) çekirdek yapısını, bileşenlerini ve veri akış modellerini detaylandırmaktadır.
+Sistemin ana felsefesi; işlemcinin "boşta bekleme" (busy-waiting) sürelerini tamamen ortadan
+kaldırarak, olay güdümlü (event-driven) bir mimari ile maksimum enerji tasarrufu sağlamaktır.
+### 1. Sistem Katmanları ve Bileşenleri
+Sistem mimarimiz üç ana katmandan (Layer) oluşmaktadır:
+* **Donanım Soyutlama Katmanı (HAL - Hardware Abstraction Layer):** İşletim sisteminin donanım
+bağımsızlığını sağlar. Cortex-M3 işlemcisinin kesme yöneticisi (NVIC), SysTick zamanlayıcısı ve
+bellek yönetim birimi (MPU) ile doğrudan haberleşen en alt katmandır.
+* **Çekirdek Katmanı (Kernel Layer):**
+* **Görev Kontrol Bloğu (TCB - Task Control Block):** Her görevin yığın (stack) işaretçisini,
+öncelik değerini ve mevcut durumunu RAM üzerinde tutan veri yapısıdır.
+* **Bağlam Değiştirici (Context Switcher):** Bir görevden diğerine geçerken işlemci yazmaçlarını
+(registers) yığına kaydeder ve yeni görevin yazmaçlarını geri yükler. (Assembly ile `PendSV`
+kesmesi üzerinden yapılacaktır).
+* **Zamanlayıcı (Scheduler):** Öncelik Tabanlı (Preemptive) bir algoritma kullanır. Her zaman
+"Ready" (Hazır) durumdaki en yüksek öncelikli görevi çalıştırır.
+* **Güç Yöneticisi (Power Manager - Boşta Çalışma Görevi):** Sistemde çalışacak hiçbir görev
+kalmadığında (tüm görevler Blocked durumundayken) devreye giren "Idle Task"tir.
+### 2. İletişim Kanalları (Inter-Process Communication - IPC)
+Görevlerin birbiriyle ve donanım kesmeleriyle (ISR) iletişim kurması için enerji tüketimini
+engelleyecek şu blokajlı (blocking) yapılar tasarlanmıştır:
+* **Semaforlar (Semaphores) ve Mutex'ler:** Paylaşılan bir kaynağa (örneğin UART veya hafıza
+bloğu) aynı anda iki görevin erişmesini engeller. Kaynak doluysa, erişmek isteyen görev işlemciyi
+döngüye sokup yormaz; çekirdek tarafından anında "Uyku/Blocked" durumuna alınır.
+* **Mesaj Kuyrukları (Message Queues):** Kesme Hizmet Rutinleri (ISR) ile normal görevler
+arasında asenkron veri taşır. ISR, çok kısa sürede donanımdan veriyi alır, kuyruğa bırakır ve çıkar.
+Görev ise bu kuyruktan veriyi çekip uzun süren işlemleri gerçekleştirir.
+### 3. Detaylı Veri Akışı ve Yürütme Modeli (Data Flow)
+Sistemdeki veri akışı, enerji tüketimini minimize etmek için tamamen **"Kesme Güdümlü (Interrupt-
+Driven)"** olarak tasarlanmıştır.
+**Örnek Veri Akış Senaryosu (Sensör Okuma ve İşleme):**
+1. **Uyku Durumu (Deep Sleep):** Sistemde işlenecek bir veri yoktur. Tüm görevler "Blocked"
+durumundadır. Güç Yöneticisi, ARM işlemcisine `WFI` (Wait For Interrupt) komutunu göndererek
+işlemcinin saat sinyallerini (clock) durdurur ve sistemi derin uykuya sokar.
+2. **Verinin Gelişi (Donanım Kesmesi):** Bir dış sensörden veri geldiğinde donanım kesmesi (örn:
+EXTI veya UART RX) tetiklenir.
+3. **Uyanış ve ISR (Interrupt Service Routine):** İşlemci uyanır. İlgili ISR hızlıca çalışır, gelen veriyi
+donanım yazmacından okur ve bir **Mesaj Kuyruğuna (Message Queue)** yazar.
+4. **Durum Güncellemesi (State Transition):** ISR veriyi kuyruğa bıraktığı anda, bu kuyruktan veri
+bekleyen ve o ana kadar uyuyan "Veri İşleme Görevi (Task)", Çekirdek tarafından anında "Ready"
+(Hazır) durumuna çekilir.
+5. **Bağlam Değişimi (Context Switch):** ISR bittiği an, Zamanlayıcı (Scheduler) devreye girer.
+"Veri İşleme Görevi" artık hazır olduğu için PendSV kesmesi tetiklenerek kontrol bu göreve verilir.
+6. **İşleme ve Tekrar Uyuma:** Görev veriyi işler. İşlem bittiğinde kuyrukta yeni veri yoksa, görev
+kendini tekrar "Blocked" durumuna çeker. İşlemci işsiz kaldığı için Güç Yöneticisi tekrar `WFI`
+komutunu çalıştırır ve sistem uykudaki minimum enerji tüketimi durumuna geri döner.
+### 4. Enerji Verimliliği Stratejisi: Tickless Idle
+Geleneksel işletim sistemleri her 1 milisaniyede bir (SysTick ile) uyanıp "Acaba yapacak bir iş var
+mı?" diye kontrol eder. Bu durum gömülü sistemlerde bataryayı hızla tüketir.
+Mimari tasarımımızda **"Tickless Idle"** yaklaşımı benimsenecektir:
+* Sistem uykuya dalmadan önce, bir sonraki görevin ne zaman çalışması gerektiği (Zamanlayıcı
+listesi) hesaplanır.
+* İşlemciyi uyandıran SysTick kesmesi, her milisaniyede bir değil; sadece o hesaplanan "gelecek
+zaman" için kurulur.
+* Böylece sistem gereksiz yere uyanmaz, enerji tasarrufu maksimize edilir.
+
+
 Avantajları
 Donanım üzerinde canlı hata ayıklamayı destekler.
 GDB ile entegrasyon sağlar.
