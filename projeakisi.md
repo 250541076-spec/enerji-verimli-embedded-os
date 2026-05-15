@@ -1022,4 +1022,465 @@ Bu proje için en uygun teknoloji:
 - Minimal Kernel  
 
 olarak belirlenmiştir.
+--------------------------------------------------------------------------
+BOOTLOADER TASARIM SPESİFİKASYONU
+1. Giriş
+Bu doküman, ARM mimarisi tabanlı bir SoC üzerinde Linux çekirdeğini güvenilir biçimde başlatacak özelleştirilmiş bir bootloader’ın tasarım esaslarını tanımlar. Belge; bootloader’ın görevlerini, çok aşamalı çalışma akışını, bellek düzenini, adresleme şemasını ve hata işleme mekanizmalarını kapsar. Amaç, donanım başlatma sürecini şeffaf biçimde belgeleyerek geliştirme, doğrulama ve bakım aşamalarında ortak bir referans oluşturmaktır.
+Spesifikasyon, doğrudan kod örnekleri vermek yerine sistemin çalışma mantığına ve mimari bağımlılıklarına odaklanır. Bu nedenle uygulama detayları (bellek adresleri, sürücü yapılandırmaları vb.) örnek niteliğinde verilmiş olup hedef SoC’nin referans kılavuzuna göre uyarlanmalıdır.
+2. Bootloader Genel Bakışı
+2.1 Tanım
+Bootloader, sistem güç verildikten ya da reset uygulandıktan sonra çalışan ilk yazılım katmanıdır. İşlemcinin, belleğin ve gerekli çevre birimlerinin Linux çekirdeğini çalıştıracak duruma getirilmesinden sorumludur. Çekirdek, görevini bootloader tarafından doğru biçimde hazırlanmış bir donanım ortamı üzerinde devralır.
+2.2 Temel Görevleri
+Donanım başlatma: saat sinyalleri (PLL), DRAM denetleyicisi, UART, depolama arabirimleri ve gerekli GPIO uçları yapılandırılır.
+Çekirdek görüntüsünün yüklenmesi: kernel ve Device Tree Blob (DTB), boot aygıtından (eMMC, SD, NAND, NOR vb.) RAM’e kopyalanır.
+Açılış parametrelerinin aktarılması: kernel komut satırı (bootargs) ve donanım tanımları çekirdeğe iletilir.
+Kontrolün devredilmesi: ARM çağrı kuralına uygun kayıt değerleri ayarlanarak çekirdeğin giriş noktasına atlanır.
+Güvenlik ve bütünlük kontrolü: isteğe bağlı olarak görüntülerin imza doğrulaması yapılır (Secure Boot).
+Hata yönetimi: yükleme başarısız olduğunda kurtarma görüntüsü çalıştırılır veya sistem watchdog tarafından sıfırlanır.
+2.3 Tasarım Hedefleri
+Düşük açılış süresi: uçtan uca toplam açılış süresinin minimuma indirilmesi.
+Modüler yapı: BL0 → BL1 → BL2 → BL33 zinciri ile her aşamanın bağımsız doğrulanabilir olması.
+Mimari uyumluluk: ARMv8-A (AArch64) ve gerekiyorsa AArch32 modlarında çalışabilirlik.
+Kernel uyumluluğu: mainline Linux çekirdeği için belgelenmiş açılış protokolüne tam uyum.
+3. Açılış Süreci ve Aşamalar
+Açılış, modern ARM SoC’lerinde çok aşamalı bir bootloader zinciri ile gerçekleştirilir. Her aşama, bir sonrakini yüklemek ve doğrulamak için minimum sorumluluk üstlenir. Bu yapı; güvenlik, esneklik ve sınırlı SRAM kaynaklarının verimli kullanımı bakımından avantaj sağlar.
 
+
+4. ARM Mimarisi ile İlişki
+4.1 Reset Vektörü ve İstisna Seviyeleri
+ARM işlemcisi, reset sinyalinin ardından önceden tanımlı bir reset vektörü adresinden çalışmaya başlar. Bu adres, SoC üreticisi tarafından dahili Boot ROM’a yönlendirilmiş durumdadır. AArch64 (ARMv8-A) işlemciler reset sonrası en yüksek istisna seviyesinde, EL3’te çalışmaya başlar; AArch32 işlemciler ise SVC modunda başlar. Bootloader, bu yüksek ayrıcalık seviyesinde donanım kaynaklarını yapılandırır ve gerektiğinde kontrolü daha düşük seviyelere (örneğin EL2 veya EL1) devretmek üzere ARM Trusted Firmware aracılığıyla geçişleri ayarlar.
+4.2 ARM Trusted Firmware (ATF)
+Modern ARM platformlarında BL1, BL2 ve BL31 katmanları için referans uygulama olarak ARM Trusted Firmware kullanılır. ATF; güvenli dünya (Secure World) servislerini, SMC (Secure Monitor Call) çağrılarını ve TrustZone tabanlı izolasyonu yönetir. Linux çekirdeği EL1’de çalışırken, BL31 EL3’te bir runtime servisi olarak kalır.
+4.3 Çekirdeğe Geçiş Kayıt Kuralları
+Çekirdek giriş noktasına atlanmadan önce işlemci kayıtları, Linux ARM/ARM64 boot protokolüne uygun şekilde ayarlanır:
+AArch64: x0 = DTB fiziksel adresi; x1, x2, x3 = 0; MMU kapalı; D-cache geçersiz, I-cache açık olabilir.
+AArch32: r0 = 0; r1 = makine türü (legacy); r2 = ATAG/DTB adresi; MMU kapalı.
+Tüm yazma işlemleri belleğe işlenmiş (flush) olmalı, önbellek tutarlılığı sağlanmalıdır.
+5. Bellek Düzeni ve Adresleme Şeması
+Aşağıdaki tablo, tipik bir 1 GB DRAM yapılandırmasında bootloader’ın kullanacağı örnek bellek haritasını göstermektedir. Adresler hedef SoC’ye göre uyarlanmalıdır.
+
+
+6. Donanım Başlatma
+6.1 Saat ve Güç Alt Sistemi
+Reset sonrası işlemci, dahili düşük frekanslı bir saat sinyaliyle çalışır. SPL aşamasında PLL (Phase-Locked Loop) yapılandırılarak işlemci, bellek ve veri yolları için hedef frekanslar elde edilir. Güç yönetim çipi (PMIC) gerektiğinde I²C üzerinden yapılandırılır.
+6.2 DRAM Denetleyicisi ve Bellek Eğitimi
+DRAM erişimi mümkün olmadan önce denetleyici parametreleri (CAS gecikmesi, refresh süresi, şerit yapılandırması vb.) ayarlanır. DDR3/DDR4 sistemlerde sinyal bütünlüğü için bellek eğitimi (memory training) yordamı çalıştırılır. Bu yordam, ana bootloader’ın DRAM’e kopyalanabilmesi için kritik öneme sahiptir.
+6.3 Çevre Birimleri
+UART: konsol çıktısı ve hata ayıklama günlüğü için ilk başlatılan birimdir.
+Depolama arabirimi: eMMC/SD/NAND denetleyicisi etkinleştirilir; kernel ve DTB buradan okunur.
+USB ve Ethernet: ağ üzerinden açılış (TFTP) veya kurtarma için isteğe bağlı olarak başlatılır.
+GPIO ve LED: açılış aşamalarının görsel olarak izlenmesi için durum göstergesi olarak kullanılabilir.
+7. Çekirdek Yükleme Süreci
+7.1 Görüntü Formatları
+Image: AArch64 için ham, sıkıştırılmamış çekirdek görüntüsü; doğrudan belirlenen adrese kopyalanır.
+zImage: AArch32 için kendi kendini açabilen sıkıştırılmış görüntü.
+FIT (Flattened Image Tree): kernel, DTB ve initramfs’i tek bir imzalanabilir paket olarak taşır; güvenli açılış için tercih edilir.
+7.2 Yükleme ve Devir Akışı
+Boot aygıtından kernel görüntüsü okunarak yükleme adresine kopyalanır.
+DTB ayrı bir adrese yüklenir; gerektiğinde bootargs ile güncellenir.
+Önbellekler temizlenir; veri tutarlılığı sağlanır.
+İşlemci kayıtları boot protokolüne uygun şekilde hazırlanır.
+Çekirdeğin giriş noktasına dallanılır; bu noktadan itibaren kontrol kernel’dedir.
+8. Güvenlik ve Hata İşleme
+8.1 Güvenli Açılış (Secure Boot)
+Güven zinciri, donanım kökünden (hardware root of trust) başlar. Boot ROM, SPL’in imzasını OTP belleğindeki açık anahtarla doğrular. Doğrulanan SPL bir sonraki aşamayı (BL2 ve BL33), BL33 ise çekirdek görüntüsünü aynı yöntemle doğrular. Herhangi bir aşamadaki imza uyuşmazlığı açılışın durdurulmasına yol açar.
+8.2 Watchdog ve Kurtarma
+Bootloader başlangıcında donanım watchdog zamanlayıcısı etkinleştirilir. Açılış belirlenen süre içinde tamamlanmazsa watchdog sistemi sıfırlar ve alternatif bir bölümden (kurtarma görüntüsü) açılış denenir. Bu mekanizma, alan koşullarında bozulmuş güncellemelere karşı sistemin kullanılamaz duruma gelmesini önler.
+8.3 Hata Raporlama
+UART konsolu üzerinden ayrıntılı hata günlüğü yayımlanır.
+Kalıcı bir bölüme kısa hata kodları yazılarak kernel devraldıktan sonra okunabilir.
+Belirli kritik hatalarda LED yanıp sönme örüntüsü ile görsel sinyalleme yapılır.
+9. Açılış Akış Diyagramı
+Aşağıdaki diyagram, güç verilmesinden Linux çekirdeğinin devralmasına kadar gerçekleşen tüm aşamaları özetlemektedir.
+
+Şekil 1. ARM tabanlı gömülü Linux sistemi için bootloader açılış akışı.
+10. Sonuç
+Bu spesifikasyon; ARM mimarisi üzerinde çalışan Linux tabanlı bir gömülü sistem için bootloader’ın görevlerini, çok aşamalı yapısını, bellek düzenini, donanım başlatma adımlarını ve güvenlik mekanizmalarını tanımlamaktadır. Açıklanan modüler tasarım; geliştirme sürecinde her aşamanın bağımsız doğrulanmasına olanak tanırken çekirdeğin tutarlı ve güvenilir biçimde başlatılmasını sağlar. Sonraki aşamada hedef SoC’ye özgü adresler ve sürücü yapılandırmaları ile bu spesifikasyonun somut uygulamaya dönüştürülmesi planlanmaktadır.
+------------------------------------------------------------------------------
+Çekirdek Seviyesi Cihaz Sürücü Arayüz Tasarımı (RTOS)
+1. Cihaz Sürücüsü Nedir ve Çekirdekle Neden Bağlantılı Çalışır?
+Cihaz sürücüsü (Device Driver), işletim sistemi çekirdeği ile fiziksel donanım arasındaki iletişimi sağlayan bir yazılım katmanıdır. Donanımlar (sensörler, motor sürücüleri, iletişim modülleri) kendilerine has register (yazmaç) yapılarına ve elektriksel sinyallere sahiptir. Çekirdek, her donanımın karmaşık detaylarını bilmek zorunda kalmamalıdır. Sürücüler, donanıma özgü bu sinyalleri çekirdeğin anlayabileceği standart yazılım çağrılarına çeviren bir "çevirmen" görevi görür.
+Sürücülerin çekirdekle bağlantılı çalışmasının temel nedeni kaynak yönetimidir. Çekirdek; bellek, işlemci zamanı ve güç tüketimi gibi kısıtlı kaynakları yönetir. Sürücü doğrudan çekirdeğe entegre olarak, donanımın ne zaman uyku moduna geçeceğini (düşük güç tüketimi) veya bir kesme (interrupt) geldiğinde işlemcinin nasıl tepki vereceğini (gerçek zamanlılık) çekirdek ile senkronize şekilde ayarlar.
+2. Kernel Space ve User Space Ayrımı
+İşletim sistemlerinde güvenlik ve kararlılık için bellek iki ana bölüme ayrılır:
+Kernel Space (Çekirdek Alanı): İşletim sisteminin kalbinin attığı, donanıma doğrudan ve kısıtlamasız erişimin olduğu alandır. Cihaz sürücüleri burada çalışır. Bu alanda yapılacak bir hata (örneğin yanlış bir bellek adresine yazma) tüm sistemin çökmesine (Kernel Panic) neden olur.
+User Space (Kullanıcı Alanı): Uygulamaların çalıştığı kısıtlı alandır. User space'teki bir uygulama donanıma doğrudan erişemez; bunun yerine Sistem Çağrıları (System Calls) aracılığıyla Kernel Space'ten izin ve işlem talep eder.
+Not: Kaynak kısıtlı bazı küçük gömülü sistemlerde (ve bazı mikroçekirdek RTOS mimarilerinde) performans ve düşük bellek ayak izi için her şey tek bir alanda çalışabilir, ancak donanım tabanlı bellek koruma birimleri (MPU) ile mantıksal bir ayrım yapmak güvenilirliği artırır.
+3. Giriş/Çıkış (I/O) ve Haberleşme Mantığı
+Sürücüler donanımla veri alışverişi yaparken temel olarak üç Giriş/Çıkış (I/O) yöntemi kullanır:
+Polling (Sürekli Kontrol): İşlemci sürekli "Veri geldi mi?" diye donanımı kontrol eder. İşlemciyi meşgul ettiği ve güç tüketimini artırdığı için enerji verimli RTOS tasarımlarında tercih edilmez.
+Interrupts (Kesmeler): Donanım, verisi hazır olduğunda işlemciye donanımsal bir sinyal gönderir. İşlemci o anki işini bırakır, ISR (Interrupt Service Routine) adı verilen sürücü fonksiyonunu çalıştırır ve geri döner. Gerçek zamanlı sistemler (RTOS) ve güç tasarrufu için en ideal yöntemdir.
+DMA (Direct Memory Access): İşlemci hiç yorulmadan donanım verilerinin doğrudan belleğe yazılmasıdır. Yüksek boyutlu veriler (örneğin ekran veya ses verisi) için kullanılır.
+İletişim mantığı Memory-Mapped I/O (Bellek Eşlemeli I/O) üzerinden yürür. Donanımın kontrol yazmaçları, RAM'deki belirli bellek adresleri gibi haritalandırılır. Sürücü, bu C pointer adreslerine okuma/yazma yaparak donanımı kontrol eder.
+4. ARM Tabanlı Sistemlerde Sürücü Yapısı
+ARM Cortex-M gibi gömülü sistem mimarilerinde sürücü geliştirmek belirli standartlara dayanır:
+NVIC (Nested Vectored Interrupt Controller): Kesmelerin önceliklendirilmesini donanımsal olarak yapar. Gerçek zamanlı görev planlayıcısının (Task Scheduler) kritik görevleri kesintiye uğratmadan donanım olaylarını yönetmesini sağlar.
+CMSIS (Cortex Microcontroller Software Interface Standard): ARM'ın sunduğu bir donanım soyutlama katmanıdır. Doğrudan donanım adreslerini ezberlemek yerine UART1->DR = data; gibi yapılandırılmış pointer'lar kullanılmasına olanak tanır.
+5. Modüler Sürücü Mantığı
+Modüler mimari, işletim sistemini yeniden derlemeye gerek kalmadan sürücülerin sisteme takılıp çıkarılabilmesidir (Loadable Kernel Modules). C dilinde bu, fonksiyon göstericileri (Function Pointers) barındıran yapılar (struct) kullanılarak gerçekleştirilir. Çekirdek, donanımın markasını veya modelini bilmez; sadece read(), write(), init() gibi standart fonksiyonların tanımlı olduğu arayüzleri bilir.
+
+
+
+
+6. Basit Sürücü Çalışma Akışı
+[Kullanıcı Uygulaması] ---> Sensörden veri oku()
+          |
+          v
+[Çekirdek (VFS/Device Manager)] ---> Hangi donanım? (Örn: /dev/i2c1)
+          |
+          v
+[Donanım Soyutlama Katmanı (HAL)] ---> i2c_read() fonksiyonunu çağır
+          |
+          v
+[Cihaz Sürücüsü (I2C Driver)] ---> ARM Registerlarına yaz, Kesme (Interrupt) bekle
+          |
+          v
+[Fiziksel Donanım] ---> İletişim Hattı (SDA/SCL) ---> [Sensör/Cihaz]
+
+7. Donanım Soyutlama Katmanı (HAL) - C Arayüz (API) Tasarımı
+Projenin "düşük güç tüketimi" hedefini göz önünde bulundurarak, standart fonksiyonlara ek olarak suspend ve resume gibi güç yönetimi (Power Management) yeteneklerini de arayüze eklenmiştir.
+-------------------------------------------------------------------------
+BELLEK YÖNETİMİ  
+. Bellek Yönetimi Nedir ve Neden Önemlidir?
+
+Bellek yönetimi, bir bilgisayar sisteminde mevcut RAM (Rastgele Erişimli Bellek) kaynağının süreçlere, görevlere veya veri yapılarına tahsis edilmesi, kullanılması ve geri alınması süreçlerini kapsayan temel bir işletim sistemi işlevidir. Bu işlev; belleğin verimli kullanılması, programların birbiriyle çakışmaması ve sistemin kararlılığının korunması açısından kritik öneme sahiptir.
+
+1.1 Gömülü Sistemlerde Önemi
+Masaüstü veya sunucu sistemlerin aksine, gömülü sistemler son derece kısıtlı donanım kaynaklarıyla çalışmak zorundadır. Birkaç kilobayt ile birkaç megabayt arasında değişen RAM miktarları, bellek yönetimini bu sistemlerde hayati bir konu haline getirmektedir.
+
+Sistemin beklenmedik şekilde çökmesi veya donması
+Bellek sızıntıları nedeniyle zamanla belleğin tükenmesi
+Gerçek zamanlı görevlerin zamanında tamamlanamaması
+Güvenlik açıklarının oluşması ve donanım hasar riski
+
+
+
+
+Şekil: Gömülü Sistem RAM Bellek Haritası – Segment Dağılımı
+2. Gömülü Sistemlerde RAM Kullanımının Optimizasyonu
+
+Gömülü sistemlerde RAM optimizasyonu, tasarım aşamasında başlamalı ve uygulamanın tüm yaşam döngüsü boyunca sürdürülmelidir.
+
+2.1 Veri Türlerinin Dikkatli Seçimi
+Değişkenlerin veri tipi seçimi doğrudan bellek tüketimini etkiler. uint8_t kullanmak, int32_t kullanımına göre 4 kat daha az bellek tüketir. Bu fark yüzlerce değişken içeren sistemlerde ciddi tasarrufa dönüşür.
+
+2.2 Küresel Değişkenlerin Sınırlandırılması
+Küresel değişkenler programın tamamı boyunca bellekte yer kaplar. Yalnızca gerçekten global erişim gerektiren veriler küresel kapsamda tanımlanmalıdır.
+
+2.3 Sabitlerin Flash Bellekte Saklanması
+Mikrodenetleyicilerde sabit veriler RAM yerine flash bellekte saklanabilir. AVR sistemlerde PROGMEM, ARM sistemlerde const niteleyicisi bu amaçla kullanılır.
+
+
+Şekil: Statik ve Dinamik Bellek Yönetiminde Tipik RAM Kullanım Dağılımı
+3. Statik ve Dinamik Bellek Yönetimi
+
+Bellek tahsis stratejileri temelde iki ana kategoriye ayrılır: statik bellek yönetimi ve dinamik bellek yönetimi.
+
+
+
+3.1 Statik Bellek Yönetimi
+Tüm değişkenler ve veri yapıları derleme aşamasında tanımlanır. BSS segmentindeki sıfırlanmış global değişkenler ve DATA segmentindeki başlangıç değeri atanmış değişkenler bu kategoriye girer.
+
+3.2 Dinamik Bellek Yönetimi
+Bellek, çalışma zamanında malloc(), calloc() veya realloc() fonksiyonlarıyla talep edilir ve free() ile serbest bırakılır. Esneklik sağlar ancak heap fragmentasyonu ve bellek sızıntısı riskleri beraberinde gelir.
+
+
+
+4. Bellek Ayırma ve Serbest Bırakma Mantığı
+
+Dinamik bellek yönetiminde heap adı verilen bir bellek bölgesi kullanılır. Sistem bu alanı serbest blok listesi (free list) aracılığıyla yönetir.
+
+4.1 Bellek Ayırma Algoritmaları
+First Fit (İlk Uygun): İlk yeterince büyük bloğu tahsis eder. Hızlıdır ancak liste başında fragmentasyon oluşturur.
+Best Fit (En Uygun): Talebi karşılayacak en küçük bloğu seçer. Fragmentasyonu azaltır fakat tarama süresi uzundur.
+Buddy System: Belleği 2'nin kuvvetleri şeklinde böler. Birleştirme (coalescing) işlemi hızlı yapılır.
+Memory Pool: Sabit boyutlu bloklarla O(1) tahsis sağlar; gömülü sistemler için en uygun yaklaşımdır.
+
+
+Şekil: Bellek Ayırma Algoritmalarının Performans Karşılaştırması
+4.2 Bellek Serbest Bırakma
+free() çağrıldığında ilgili blok serbest listeye geri eklenir. Bitişik serbest bloklar birleştirilerek daha büyük blok elde edilir. Çift serbest bırakma (double free) ciddi bellek bozulmalarına yol açar.
+
+5. Bellek Havuzu (Memory Pool) Yapısı
+
+Bellek havuzu, önceden belirlenmiş sayıda ve sabit boyutlu bellek bloklarından oluşan bir yapıdır. Dinamik belleğin esnekliğiyle statik belleğin güvenilirliğini birleştirir.
+
+
+Şekil: Bellek Havuzu Blok Yapısı ve Tahsis Adımları
+Sabit zamanlı (O(1)) tahsis ve serbest bırakma işlemi
+Dış fragmentasyon tamamen önlenir
+Deterministik davranış – gerçek zamanlı sistemler için idealdir
+Bellek sızıntısı tespiti kolaylaşır
+
+
+
+6. Minimal Bellek Ayak İzi için Yöntemler
+
+6.1 Yığıt Boyutunun Optimizasyonu
+Gerçek yığıt kullanımı su işareti analizi (stack watermark) ya da kanarya değerleri (canary values) ile ölçülerek optimize edilebilir.
+
+6.2 Bağlantı Zamanı Optimizasyonu
+GCC'nin --gc-sections bayrağı ve -ffunction-sections / -fdata-sections seçenekleri kullanılmayan kod ve değişkenleri bağlama aşamasında kaldırır.
+
+6.3 Sabitlerin Flash'ta Saklanması
+Büyük sabit veri kümeleri flash bellekte saklanarak RAM'den tasarruf edilebilir. RLE ve LZ77 tabanlı algoritmalar bu bağlamda sıkça kullanılır.
+
+7. Bellek Taşması ve Bellek Sızıntısı Problemleri
+
+7.1 Bellek Taşması (Buffer Overflow / Stack Overflow)
+Bir bellek bölgesine ayrılan kapasitesinin ötesinde veri yazılması durumunda bellek taşması meydana gelir. MMU olmayan sistemlerde bu hatalar doğrudan veri bozulmasına neden olur.
+
+7.2 Bellek Sızıntısı (Memory Leak)
+Dinamik olarak tahsis edilen belleğin free() ile serbest bırakılmaması durumunda oluşur. Uzun süreli çalışan sistemlerde birikimli sızıntılar heap alanını tamamen tüketebilir.
+
+
+Şekil: Bellek Sızıntısı – Kullanılan Bellek Miktarının Zamana Göre Değişimi
+
+
+8. Bellek Problemlerini Önleme Yöntemleri
+
+8.1 Statik Analiz Araçları
+PC-lint / FlexeLint: MISRA-C uyumlu bellek analizi
+Polyspace: Kanıtlanabilir güvenli kod analizi
+Clang Static Analyzer: Ücretsiz, açık kaynaklı analiz
+
+8.2 Dinamik Analiz Araçları
+Valgrind / Memcheck: Bellek sızıntısı tespiti
+AddressSanitizer (ASan): Derleyici tabanlı hızlı hata tespiti
+Electric Fence: Heap sınırı ihlallerini tespit eder
+
+8.3 Güvenli Kodlama Pratikleri
+Bellek tahsisinden sonra NULL işaretçi kontrolü yapılmalıdır
+free() çağrısının ardından işaretçi NULL'a atanmalıdır (dangling pointer önleme)
+MISRA-C 2012 gibi endüstriyel kodlama standartları benimsenmelidir
+
+8.4 Donanım Tabanlı Koruma
+MPU (Memory Protection Unit): Bellek bölgelerine erişim izinleri tanımlar
+WDT (Watchdog Timer): Donmuş sistemleri otomatik yeniden başlatır
+
+9. Bellek Yönetim Akış Şeması
+
+Aşağıdaki diyagram, gömülü bir sistemde dinamik bellek tahsis ve serbest bırakma sürecinin adım adım akışını göstermektedir.
+
+
+Şekil: Dinamik Bellek Tahsis ve Serbest Bırakma Akış Şeması
+Hata işleme adımının sistemi güvenli duruma geçirmesi kritiktir. Gerçek zamanlı ve güvenlik-kritik sistemlerde bu adım ihmal edilmemelidir.
+
+10. Sonuç
+
+Statik bellek yönetimi; öngörülebilirlik ve güvenilirlik açısından gömülü sistemlerde birincil yaklaşım olmalıdır.
+Dinamik bellek kaçınılmazsa, bellek havuzu yapıları doğrudan heap kullanımına güvenli alternatif sunar.
+Bellek sızıntısı ve taşma hataları; kodlama standartları, statik analiz ve donanım korumaları ile önlenebilir.
+Bellek yönetimi her gömülü sistem projesinin temel mühendislik önceliklerinden biri olarak ele alınmalıdır.
+---------------------------------------------------------------------------------------
+GERÇEK ZAMANLI AKIŞ ŞEMASI
+ 1.GİRİŞ
+Gömülü sistemler, kısıtlı enerji kaynakları (pil) ve sınırlı donanım kapasitesi ile yüksek güvenilirlik gerektiren ortamlarda çalışmaktadır. Bu projede, ARM mimarisi üzerinde koşan gömülü cihazlar için enerji verimliliği ve gerçek zamanlılık (real-time) arasındaki dengeyi optimize eden bir Görev Planlayıcısı (Scheduler) tasarımı ele alınmıştır. Amaç, kritik görevlerin zamanında tamamlanmasını garanti altına alırken (determinism), sistemin boşta olduğu sürelerde güç tüketimini minimuma indirmektir.
+
+ 
+ 2. GERÇEK ZAMANLI SİSTEM VE PLANLAYICI MİMARİSİ
+2.1 Gerçek Zamanlılık Kriterleri
+Gerçek zamanlı bir sistemin başarısı, işlemin doğruluğunun yanı sıra bu işlemin zaman kısıtları (deadlines) içerisinde gerçekleştirilmesine bağlıdır. Tasarımımızda iki temel gerçek zamanlılık türü referans alınmıştır:
+Hard Real-Time: Zaman kısıtının ihlali sistem felaketine yol açar (Örn: Hava yastığı kontrolü).
+Soft Real-Time: Gecikmeler tolere edilebilir ancak performans kaybı oluşur.
+2.2 Görev Kontrol Bloğu (TCB - Task Control Block)
+Planlayıcı, her görevi yönetmek için bellek üzerinde bir TCB yapısı tutar. Bu yapı, bağlam anahtarlama (context switching) sırasında görevlerin durumunu korur:
+Görev Önceliği: Statik olarak atanmış RMS değeri.
+Yığıt İşaretçisi (Stack Pointer): CPU kayıtçılarının (registers) saklandığı adres.
+Görev Durumu: Ready (Hazır), Running (Çalışıyor), Waiting (Beklemede).
+
+
+
+ 
+ 3. ALGORİTMA TASARIMI: RATE MONOTONIC SCHEDULING (RMS)
+Proje kapsamında, periyodik görevlerin planlanmasında en güvenilir yöntem olan Rate Monotonic Scheduling (RMS) seçilmiştir.
+3.1 RMS Mantığı ve Öncelik Ataması
+RMS algoritması, görevlere periyotları ile ters orantılı öncelikler atar.
+Kural: Periyodu kısa olan görev, daha yüksek önceliğe sahiptir.
+Sabit Öncelik: Görevler çalışma anında öncelik değiştirmez, bu da işlemci üzerindeki yükü (overhead) azaltarak enerji tasarrufu sağlar.
+3.2 Simülasyon Tabanlı Performans Analizi
+Tasarım aşamasında, görevlerin çakışma durumlarını ve birbirlerini kesme (preemption) süreçlerini analiz etmek için simülasyonlar yürütülmüştür.
+ 
+
+
+
+
+  4. ENERJİ VERİMLİLİĞİ VE SİMÜLASYON ANALİZİ
+4.1 Tickless Idle Mekanizması
+Geleneksel sistemlerdeki her "tick" uyanışının getirdiği enerji maliyetini önlemek adına Tickless Idle tekniği kullanılmıştır.
+Standart Yaklaşım: CPU her 1ms'de bir uyanır (Yüksek tüketim).
+EV-OS Yaklaşımı: Planlayıcı bir sonraki göreve kadar olan süreyi hesaplar ve CPU'yu derin uyku moduna sokar.
+
+
+
+
+  5. GERÇEK DÜNYA UYGULAMASI VE AKIŞ ŞEMASI
+Gerçek bir donanım üzerinde (ARM Cortex-M), planlayıcının karar verme süreci aşağıdaki mantıksal akış şemasına dayanmaktadır:
+5.1 Planlayıcı Akış Şeması (Flowchart)
+START: Donanım kesmesi tetiklenir (Systick/External).
+CHECK: "Hazır Liste" içerisinde çalışmaya uygun bir görev var mı?
+DECISION: * Hayır ise: Sleep Mode (WFI) aktif edilir, enerji tasarrufuna geçilir.
+Evet ise: Bir sonraki adıma geçilir.
+PRIORITY CHECK: Hazır görevin önceliği mevcut görevden yüksek mi?
+CONTEXT SWITCH: Mevcut kayıtçılar yığıta (stack) yazılır, yeni görevin verileri yüklenir.
+EXECUTE: Görev yürütülür ve döngü başa döner.
+
+
+
+
+SONUÇ
+Bu teknik tasarım dokümanında, gömülü sistemler için enerji verimliliği odaklı bir gerçek zamanlı planlayıcı mimarisi sunulmuştur. Rate Monotonic Scheduling (RMS) algoritması kullanılarak sistemin deterministik çalışması simülasyonlarla doğrulanmıştır. Tickless Idle ve ARM tabanlı bağlam anahtarlama teknikleri ile sistemin hem güvenilir hem de düşük güç tüketimli bir profil çizdiği kanıtlanmıştır. Yapılan simülasyonlar, teorik yaklaşımların gerçek donanım kısıtları altında başarılı sonuçlar verdiğini göstermektedir.
+-------------------------------------------------------------------------------------------
+
+GÜÇ YÖNETİMİ MODULU TASARIMI
+Özet
+Gömülü sistemlerin büyük çoğunluğu sınırlı enerji kaynaklarıyla (pil, küçük süperkondansatör veya enerji hasadı devresi) çalışır. Bu nedenle güç yönetimi, modern gömülü işletim sistemi tasarımının en kritik bileşenlerinden biri hâline gelmiştir. Bu rapor; güç yönetiminin temel kavramlarını, gömülü sistemlerde gözlenen enerji tüketim sorunlarını, düşük güç modlarının (sleep / idle) mantığını, işlemci ve çevresel birim seviyesindeki güç kontrol tekniklerini, gereksiz enerji tüketimini azaltmaya yönelik yazılım ve donanım yöntemlerini, pil ömrü ile sistem verimliliği arasındaki ilişkiyi ve özellikle yaygın olarak kullanılan ARM tabanlı işlemcilerde uygulanan güç yönetim yaklaşımını ele almaktadır. Ayrıca raporun sonunda, modül için önerilen durum geçişlerini özetleyen bir akış şeması sunulmuştur.
+1. Giriş
+Görüntü işleme uygulamaları doğası gereği yoğun hesaplama gerektirir; bu hesaplama yükü doğrudan enerji tüketimine yansır. Sistemin pille çalıştığı senaryolarda (taşınabilir kamera modülleri, IoT görüntü düğümleri, drone üzerine yerleştirilen görüntü işleyiciler gibi) enerji verimliliği, yalnızca cihazın çalışma süresini değil; ısınma, performans kararlılığı ve donanım ömrünü de doğrudan etkiler. Bu rapor, projemizin gömülü işletim sistemi katmanında konumlanacak Güç Yönetimi Modülü’nün tasarım gereksinimlerini, yapısal kararlarını ve çalışma prensiplerini tanımlamak amacıyla hazırlanmıştır.
+Raporun amacı kod üretmek değil, modülün mimari tasarımını belgelemektir. Bu nedenle ilerleyen bölümlerde donanım/yazılım katmanlarına ait soyut tanımlar, durum makineleri ve karar mekanizmaları üzerinden ilerlenmiştir.
+2. Güç Yönetimi Nedir ve Neden Önemlidir?
+Güç yönetimi (power management); bir sistemin işlevlerini sürdürürken tükettiği elektrik enerjisini ölçmek, denetlemek ve mümkün olan en düşük seviyeye indirmek amacıyla uygulanan donanım ve yazılım tekniklerinin bütünüdür. Gömülü sistemlerde bu kavram yalnızca “tasarruf etmek” anlamına gelmez; aynı zamanda işlemcinin termal limitler içinde tutulması, pilin kullanım ömrünün uzatılması ve sistemin gerçek-zamanlı tepki yeteneğinin korunması demektir.
+Güç yönetiminin önemi birkaç başlıkta toplanabilir:
+Sistem ömrü: Pille çalışan cihazlarda etkin güç yönetimi, kullanım süresini birkaç saatten haftalara, hatta yıllara çıkarabilir.
+Isıl davranış: Gereksiz tüketim, ısı olarak atılır. Aşırı ısınma performansı düşürür ve bileşen ömrünü kısaltır.
+Güvenilirlik: Pil voltajının ani düşmesi sistemin beklenmedik biçimde yeniden başlamasına yol açabilir; güç yönetimi bunu öngörülebilir hâle getirir.
+Maliyet: Daha küçük pil ve daha basit termal çözüm, üretim maliyetini doğrudan düşürür.
+Çevresel etki: Düşük enerji tüketimi, ölçek büyüdükçe ciddi miktarda elektrik tüketiminin önüne geçer.
+3. Gömülü Sistemlerde Enerji Tüketimi Sorunları
+Gömülü cihazlarda enerji tüketimi, masaüstü veya sunucu sistemlerinden farklı kısıtlar altında değerlendirilmelidir. Karşılaşılan başlıca sorunlar aşağıda sıralanmıştır:
+3.1. Sınırlı Enerji Kaynağı
+Birçok cihaz bir pil veya küçük bir enerji hasadı devresinden (örneğin güneş paneli, piezoelektrik üretici) beslenir. Kaynağın kapasitesi sabit olduğundan, sistemin tükettiği her miliamper doğrudan çalışma süresinden eksilir.
+3.2. Sızıntı (Statik) Akımı
+Modern CMOS işlemcilerde, transistör kapısı kapalı olduğunda bile küçük bir akım akmaya devam eder. Bu sızıntı akımı, sistem hiçbir iş yapmıyor olsa dahi enerji tüketir ve özellikle düşük güç modlarında toplam tüketimin baskın bileşeni hâline gelir.
+3.3. Dinamik Tüketim ve Saat Sinyali
+İşlemcinin saat (clock) sinyali, kullanılmayan blokları bile her çevrim için anahtarlar. Saat dağıtım ağı genellikle yongadaki en pahalı dinamik tüketim kaynaklarından biridir.
+3.4. Çevresel Birimlerin Açık Bırakılması
+UART, SPI, ADC, USB, kablosuz arabirimler gibi çevresel birimler kullanılmadıkları zamanlarda açık bırakıldığında ciddi bir enerji kaybı oluşur. Yazılımın bu birimleri seçici biçimde devre dışı bırakamaması yaygın bir sorundur.
+3.5. Yetersiz Yazılım Tasarımı
+Sürekli yoklama (busy-wait, polling) yapan, gereğinden sık olay döngüsü çalıştıran veya verimsiz algoritmalar kullanan yazılımlar; donanım ne kadar iyi olursa olsun, sistemi sürekli aktif modda tutarak pilin hızla tükenmesine yol açar.
+3.6. Termal Sınırlamalar
+Yoğun görüntü işleme yükü altında işlemci ısınır. Yüksek sıcaklık hem sızıntı akımını arttırır (geri besleme döngüsü) hem de işlemcinin termal koruma (throttling) yoluyla yavaşlamasına neden olur. Sonuçta enerji tüketilir ama iş yapılmaz.
+4. Düşük Güç Modları (Sleep / Idle) Mantığı
+Güç yönetiminin kalbinde, sistemin “gerçekten iş yaptığı zaman” ile “bekleme yaptığı zaman” arasında ayrım yapan bir durum makinesi yatar. Tipik bir gömülü işlemci aşağıdaki güç durumlarını sunar:
+4.1. Active (Çalışma) Modu
+İşlemci, çevresel birimler ve bellekler tam hızda çalışır. Görevlerin yürütüldüğü tek moddur; aynı zamanda en yüksek tüketim seviyesidir.
+4.2. Idle (Boşta) Modu
+İşlemci çekirdeğinin saati durdurulur, ancak bellek içeriği ve çevresel birim durumu korunur. Bir kesme (interrupt) gelir gelmez sistem mikrosaniyeler içinde Active moda döner. ARM Cortex-M işlemcilerde bu, klasik olarak WFI (Wait For Interrupt) komutuyla tetiklenir.
+4.3. Sleep (Uyku) Modu
+İşlemci çekirdeğine ek olarak bazı çevresel birimlerin de saati kesilir veya gerilimleri düşürülür. Uyandırma kaynakları sınırlandırılır (örneğin yalnızca seçili IRQ’lar veya zamanlayıcı). Tüketim Idle moduna göre belirgin biçimde düşer; tipik bir mikrodenetleyicide Active modun yüzde birkaçına iner.
+4.4. Deep Sleep / Standby Modu
+Çekirdek, RAM içeriği ve çoğu çevresel birim kapatılır. Yalnızca Real-Time Clock (RTC) ve harici bir uyandırma pini gibi minimum devreler etkin kalır. Tüketim mikroamper seviyesine düşebilir; ancak sistem uyandığında yeniden başlatma maliyeti yüksektir.
+4.5. Power-off / Hibernate
+Sistemin neredeyse tamamı kapatılır; durum bilgisi kaybedilir veya kalıcı belleğe yazılır. Çok düşük tüketim sağlar ancak geri dönüş süresi en uzun olandır.
+4.6. Uyandırma (Wake-up) Mekanizmaları
+Düşük güç modunda kalan bir cihaz; harici bir kesme, zamanlayıcı taşması (timer overflow), RTC alarmı, sensör eşik aşımı veya kablosuz arabirimden gelen bir paket gibi bir olayla uyandırılır. Modülün tasarımı, hangi olayın hangi moddan uyandırma yapabileceğini açıkça tanımlamalıdır.
+Modlar arası karşılaştırma
+
+Tablo 1. Tipik gömülü işlemci güç modlarının karşılaştırılması.
+5. İşlemci ve Donanım Bileşenlerinin Güç Kontrolü
+Düşük güç modlarına geçiş tek başına yeterli değildir; sistem aktifken de tüketimi düşürmek için işlemci çekirdeği ve çevresel birimler üzerinde çeşitli denetim teknikleri uygulanır.
+5.1. Dinamik Gerilim ve Frekans Ölçekleme (DVFS)
+CMOS devrelerinde dinamik güç tüketimi yaklaşık olarak P ∝ C · V² · f bağıntısıyla ifade edilir. Bu nedenle gerilimi (V) düşürmek, tüketimi karesi oranında azaltır; frekansı (f) düşürmek ise doğru orantılıdır. DVFS; sistemin anlık iş yüküne göre çalışma frekansı ve çekirdek gerilimini dinamik olarak değiştirir. Görüntü işleme bağlamında, kare oranı düşük olduğunda DVFS ile çekirdek frekansı bilinçli olarak indirilebilir.
+5.2. Saat Kapısı (Clock Gating)
+Kullanılmayan bloğa giden saat sinyalinin “AND” kapısı ile kesilmesidir. Donanım katmanında uygulanır ve dinamik tüketimi neredeyse anında düşürür. Yazılım, kullanmadığı çevresel birimleri kapatarak (RCC/AHB clock enable bitlerini sıfırlayarak) bu mekanizmayı tetikler.
+5.3. Güç Kapısı (Power Gating)
+Saat kapısı yalnızca dinamik tüketimi keserken, güç kapısı bir bloğun beslemesini tamamen kesip sızıntı akımını da ortadan kaldırır. Daha fazla tasarruf sağlar fakat uyanma süresi daha uzundur ve içerik kaybı olabilir.
+5.4. Çevresel Birim Yönetimi
+Sensörler, kablosuz modüller, ekran sürücüleri gibi birimler genelde işlemciden çok daha fazla akım çeker. Tasarımda her birim için ayrı bir “açık / düşük güç / kapalı” yönetim politikası tanımlanmalıdır. Örneğin bir kamera modülü, kare alımı bittikten sonra yazılım tarafından açıkça düşük güç moduna alınmalıdır.
+5.5. Bellek Yönetimi
+SRAM blokları bölümlenebilir; kullanılmayan bölümlerin beslemesi kesilebilir (memory retention/partial shutdown). Bu, özellikle Deep Sleep modunda anlamlı tasarruf sağlar.
+5.6. Voltaj Düzenleyici Seçimi
+Doğrusal düzenleyiciler (LDO) basittir ama verim düşüktür. Anahtarlamalı (DC-DC buck) düzenleyiciler ise %85–95 verimle çalışır. Düşük güç bütçesi olan tasarımlarda düzenleyici seçimi tek başına önemli bir kazanç kaynağıdır.
+6. Gereksiz Enerji Tüketimini Azaltma Yöntemleri
+Bu bölüm, raporun en uygulamaya dönük kısmıdır. Tasarımda hem donanım hem yazılım tarafında uygulanması önerilen optimizasyon yöntemleri aşağıda gruplanmıştır.
+6.1. Olay Güdümlü (Event-driven) Mimariye Geçiş
+Sistem, sürekli yoklama yerine yalnızca bir olay gerçekleştiğinde uyandırılmalıdır. Bu, sistemin zamanının büyük çoğunluğunu düşük güç modunda geçirmesini sağlar. Görüntü işleme uygulamamızda kare hazır kesmesi (frame-ready IRQ), tampon dolu kesmesi (DMA complete) gibi olaylar uyandırma sebepleri olarak tanımlanmalıdır.
+6.2. Tickless (Saatsiz) Çekirdek
+Klasik RTOS çekirdekleri sabit aralıklı bir sistem zamanlayıcısı (örneğin 1 ms’de bir kesme) çalıştırır. Bu, gereksiz sayıda uyanmaya neden olur. Tickless modda zamanlayıcı yalnızca bir sonraki gerçek görev için gereken süre boyunca çalışır; ara dönemde işlemci uyutulur. FreeRTOS, Zephyr ve Linux çekirdeği gibi sistemler tickless desteğini doğrudan sunar.
+6.3. DMA Kullanımı
+Bellek ile çevresel birim arasındaki veri aktarımı CPU yerine DMA denetleyicisine bırakıldığında, çekirdek bu süre boyunca uyutulabilir. Görüntü tamponlarının okunması/yazılması gibi yüksek hacimli işlemlerde bu yöntem hem performans hem enerji açısından kritik kazanç sağlar.
+6.4. Sensör Görev Döngüsü (Duty Cycling)
+Sürekli okuma yerine sensörler sadece gerekli aralıklarla aktif edilmelidir. Örneğin ortam ışığı sensörü saniyede 50 kez yerine saniyede 2 kez okunarak hem CPU yükü hem de sensör tüketimi büyük oranda azaltılır.
+6.5. İletişim (RF / Kablosuz) Optimizasyonu
+Veriyi toplu gönderme: Küçük paketler tek tek değil, biriktirilip toplu hâlde iletilmelidir; her uyanma–iletim–uyuma çevrimi sabit bir enerji maliyeti taşır.
+İletim gücü ayarı: Hedef erişilebilir olduğu sürece anten çıkış gücü düşürülmelidir.
+Düşük güçlü protokoller: BLE, LoRa, Zigbee gibi protokoller kasıtlı olarak düşük tüketim için tasarlanmıştır; uygun olduğunda Wi-Fi yerine tercih edilmelidir.
+6.6. Yazılım ve Algoritma Düzeyi Optimizasyonlar
+Polling yerine kesme: CPU’nun bir bayrağı sürekli kontrol etmesi yerine, donanım kesmesiyle uyandırılması.
+Verimli veri yapıları: Görüntü işlemede gereksiz kopyalamadan kaçınmak, sıfır kopya (zero-copy) tampon stratejileri kullanmak.
+Sabit nokta aritmetiği: Mümkün olan yerlerde kayan nokta yerine sabit nokta kullanmak, FPU’nun açılmamasını sağlar.
+Derleyici optimizasyon seviyesi: -O2 veya -Os ile derlenmiş kod, daha az çevrim ve daha az kod kullandığı için hem çalışma süresini hem enerjiyi düşürür.
+Erken çıkış (early exit): Görüntü işleme akışında, ön koşulu sağlamayan kareler için pahalı işlemlerin atlanması.
+6.7. Çalışma Profili (Race-to-idle) Prensibi
+Görece yeni ama önemli bir tasarım ilkesidir: işi mümkün olan en yüksek hızla bitirip uzun süre uyumak, işi yavaşça yapıp az süre uyumaktan çoğu zaman daha verimlidir. Buna “race-to-idle” (boşa koşma) denir. Modern modern düşük güç modu tüketimleri o kadar düşmüştür ki, sızıntı baskın hâle gelene kadar bu strateji geçerliliğini korur. DVFS politikası bu prensip göz önünde bulundurularak ayarlanmalıdır.
+6.8. Çevresel Birim Saatini Kapatma
+Kullanılmayan UART2, SPI3, ADC vb. birimlerin saatleri başlangıçta kapatılmalı; yalnızca o birim gerçekten kullanılacağı zaman açılıp iş bitince tekrar kapatılmalıdır. Bu yöntem küçük gözükmesine rağmen mikrodenetleyici toplam tüketiminde gözle görülür fark yaratır.
+6.9. Ekran ve LED Yönetimi
+Ekran (özellikle arka aydınlatma) ve LED’ler gömülü cihazlarda en yüksek tüketicilerden biridir. Kullanıcı etkileşimi yokken ekranı söndürmek, sabit yanan göstergeleri yanıp sönen düşük göreve dönüştürmek (PWM ile parlaklığı düşürmek) basit ama etkili tekniklerdir.
+6.10. Profil Çıkarma (Energy Profiling)
+Optimizasyon, ölçüme dayanmadan yapılırsa tahmine dayalı kalır. Tasarımda enerji profilleyici (ör. Nordic Power Profiler Kit, Otii Arc, Joulescope) kullanılarak her modülün gerçek tüketimi haritalanmalıdır. Bu, hangi optimizasyonun en yüksek getiriyi sağlayacağını gösterir.
+7. Pil ve Verimlilik İlişkisi
+Pil kapasitesi genellikle mAh (miliamper-saat) cinsinden ifade edilir. Bir cihazın pil ömrü, kabaca aşağıdaki ilişkiyle hesaplanır:
+Pil Ömrü (saat) ≈ Pil Kapasitesi (mAh) ÷ Ortalama Tüketim (mA)
+Bu basit denklem, optimizasyon hedefini açıkça ortaya koyar: ortalama akımı düşürmek. Sistemin tepe akımı yüksek olsa bile, bu tepe değer kısa süreli olduğu sürece ortalama düşük tutulabilir. Bu nedenle güç yönetimi tasarımında “zamanın yüzde kaçı hangi modda geçiriliyor?” sorusu temel sorudur.
+7.1. Görev Döngüsünün Etkisi
+Örnek olarak, Active modda 30 mA ve Sleep modda 10 µA çeken bir cihazı düşünelim. Cihaz zamanın %1’ini aktif, %99’unu uykuda geçiriyorsa:
+Ortalama akım = 0,01 × 30 mA + 0,99 × 0,01 mA ≈ 0,31 mA
+1000 mAh’lik bir pil bu durumda yaklaşık 3.200 saat, yani 130 günden fazla çalışır. Aynı sistem %50 görev döngüsünde çalışırsa ortalama 15 mA’e fırlar ve pil yalnızca 67 saat dayanır. Bu fark, güç yönetiminin yazılım katmanında ne kadar belirleyici olduğunu açıkça göstermektedir.
+7.2. Pil Karakteristikleri
+Voltaj düşüşü: Pil boşaldıkça gerilimi de düşer; sistem bu voltaj aralığında çalışabilmelidir veya yükselten/azaltan düzenleyici kullanılmalıdır.
+Self-discharge: Pil kullanılmasa bile zamanla küçük bir akım kaybeder; Deep Sleep tüketimi self-discharge’a yaklaştığında daha fazla optimizasyon anlamsızlaşır.
+Sıcaklık etkisi: Düşük sıcaklıkta pil kapasitesi azalır; bu, dış ortamda çalışan cihazlar için tasarımda göz önünde bulundurulmalıdır.
+Tepe akım kapasitesi: Bazı piller (özellikle ince LiPo veya buton hücreler) yüksek anlık akım veremez; tepe yüklerini dengelemek için süperkondansatör eklenebilir.
+8. ARM Tabanlı Sistemlerde Güç Yönetimi
+ARM mimarisi, düşük güç tüketimine yönelik tasarlanmış olması nedeniyle gömülü sistemlerde baskın bir şekilde kullanılır. ARM ekosisteminin sunduğu güç yönetim mekanizmaları iki ana aile üzerinden incelenebilir.
+8.1. ARM Cortex-M Ailesi (Mikrodenetleyiciler)
+STM32, nRF52, RP2040, MSP432, SAM serileri gibi yaygın mikrodenetleyiciler bu ailededir. Cortex-M çekirdekleri standart olarak iki temel komut sunar:
+WFI (Wait For Interrupt): İşlemci, bir kesme oluşana kadar çekirdek saatini durdurur. Sleep moduna geçişin ana tetikleyicisidir.
+WFE (Wait For Event): Kesme bekleme yerine olay (event) bekleme moduna geçer; çok çekirdekli düşük güç senaryolarında yararlıdır.
+Bu komutlar System Control Block içindeki SCR (System Control Register) kayıtçısı ile birlikte kullanılarak Sleep, Deep Sleep ve Sleep-on-exit gibi davranışlar yapılandırılır. STM32 ailesinde bunlara ek olarak Stop ve Standby modları bulunur; bu modlar tipik olarak birkaç mikroamper seviyesinde tüketim sağlar.
+8.2. ARM Cortex-A Ailesi (Uygulama İşlemcileri)
+Raspberry Pi, NXP i.MX, NVIDIA Jetson gibi platformlarda kullanılan Cortex-A çekirdekleri çok daha karmaşık bir güç yönetimi gerektirir. ARM bu nedenle PSCI (Power State Coordination Interface) adında standart bir arayüz tanımlamıştır. PSCI, çekirdekleri tek tek uyutma/uyandırma, küme (cluster) seviyesinde güç kapatma ve sistem genelinde standby gibi işlemleri standartlaştırır. Linux çekirdeği bu arayüzü doğrudan kullanır.
+8.3. Donanım Düzeyinde: PMU ve PMIC
+PMU (Power Management Unit): Yonga içinde yer alır; güç alanlarını (power domain) yönetir, saat kapılarını kontrol eder.
+PMIC (Power Management Integrated Circuit): Yonga dışında ayrı bir entegredir; birden fazla gerilim seviyesi üretir, pil şarj yönetimi yapar, çevresel birimlerin beslemesini bağımsız olarak açıp kapatabilir.
+8.4. big.LITTLE ve Heterojen Mimari
+Cortex-A ekosisteminde, performans gerektiren görevler büyük çekirdekte (örn. Cortex-A78), arka plan görevleri küçük çekirdekte (örn. Cortex-A55) çalıştırılır. Görev tipine göre uygun çekirdeğe geçiş, hem performans hem enerji açısından önemli kazanç sağlar. Görüntü işleme yükü büyük çekirdekte koştuktan sonra sistem doğrudan küçük çekirdeklere geçirilerek beklemeye alınabilir.
+8.5. CMSIS ve Vendor HAL Desteği
+ARM, CMSIS (Cortex Microcontroller Software Interface Standard) ile düşük güç komutlarının taşınabilir bir biçimde çağrılmasını sağlar (örneğin __WFI() makrosu). Bunun üzerine üreticiye özel HAL kütüphaneleri (STM32 HAL/LL, Nordic SoftDevice, Espressif ESP-IDF) farklı uyku modlarını kolayca yapılandırmaya olanak tanır.
+9. Önerilen Güç Yönetim Modülü Akış Şeması
+Aşağıda, projemizdeki güç yönetim modülünün durum geçişlerini özetleyen basit bir akış şeması sunulmuştur. Şema; sistemin başlatılmasından itibaren işlenecek görev olup olmadığını sorgulayan ana döngüyü, boşta kalma süresine göre seçilen düşük güç modlarını ve uyandırma yolunu kapsar.
+
+Şekil 1. Güç Yönetim Modülü Durum Geçiş Akış Şeması.
+9.1. Akışın Açıklaması
+Sistem reset sonrası başlatma sürecini tamamlar (saat ağacı, çevresel birimler ve RTOS kurulumu) ve ACTIVE moda girer. Karar noktası A’da işlenecek bir görev olup olmadığı sorgulanır:
+Görev var: Sistem aktif modda kalır ve görevi yürütür. Görev bittikten sonra döngü başa döner.
+Görev yok: Karar noktası B’ye geçilir; tahmini boşta kalma süresine göre uygun düşük güç modu seçilir.
+Boşta kalma süresinin tahmini, RTOS’un bir sonraki zamanlayıcı olayına kadar olan süresinden veya tickless zamanlayıcının hesapladığı bekleme aralığından elde edilir. Süre kısaysa IDLE, ortaysa SLEEP, uzunsa DEEP SLEEP/STANDBY tercih edilir. Tüm modlardan çıkış; bir kesme (IRQ), zamanlayıcı taşması veya harici uyandırma sinyali ile gerçekleşir ve sistem yeniden ACTIVE moda döner.
+10. Sonuç ve Değerlendirme
+Bu rapor kapsamında, görüntü işleme projemizin gömülü işletim sistemi katmanında yer alacak Güç Yönetimi Modülü’nün tasarım gereksinimleri, çalışma prensipleri ve uygulanması planlanan optimizasyon teknikleri ayrıntılı olarak ele alındı. Tasarımın temel ilkeleri şu şekilde özetlenebilir:
+Sistem, varsayılan olarak en düşük tüketimli modda kalmalı; yalnızca bir olay gerçekleştiğinde uyandırılmalıdır (olay güdümlü yaklaşım).
+Tickless zamanlayıcı ve DMA kullanımı, çekirdeğin etkin çalışma süresini büyük oranda kısaltacaktır.
+Düşük güç modları arasında geçiş, RTOS tarafından sağlanan boşta kalma süresi tahminine göre dinamik biçimde yapılmalıdır.
+DVFS ve race-to-idle prensipleri birlikte uygulanarak hem dinamik hem statik tüketim minimize edilmelidir.
+ARM Cortex-M çekirdekleri için WFI komutu ve üretici HAL kütüphaneleri (örn. STM32 HAL_PWR_Enter*Mode fonksiyonları) modülün soyutlama katmanı olarak değerlendirilmelidir.
+Tasarım sürecinin sonunda, gerçek tüketim ölçümü için bir enerji profilleyici ile sahada doğrulama yapılmalıdır.
+Bu tasarım kararlarının uygulanması durumunda, sistemin hem pil ömrü hem de termal davranışı açısından önemli ölçüde iyileştirilmesi beklenmektedir. Sonraki adımda, bu raporda tanımlanan durum makinesinin RTOS üzerinde uygulamaya alınması ve seçilen donanım üzerinde ölçümlerle doğrulanması planlanmaktadır.
+------------------------------------------------------------------------------------------------------
+Donanım Test ve Doğrulama Planı Tasarımı
+1. Amaç
+Bu çalışma kapsamında geliştirilen gerçek zamanlı işletim sistemi tabanlı yapının donanım tarafında güvenilir, kararlı ve hatasız çalışmasını sağlamak amacıyla test ve doğrulama planı hazırlanmıştır. Oluşturulan plan sayesinde sistem bileşenlerinin doğru çalışıp çalışmadığı kontrol edilerek oluşabilecek hataların önceden tespit edilmesi hedeflenmiştir.
+2. Donanım Test Süreçleri
+Donanım test süreçleri sistemin temel bileşenlerinin ayrı ayrı ve birlikte çalışmasını kontrol etmek amacıyla hazırlanmıştır. Testler belirli aşamalara ayrılmıştır.  • Başlangıç Testleri: Sistemin ilk açılış sürecinde işlemci, RAM, sensörler ve giriş-çıkış birimlerinin düzgün çalışıp çalışmadığı kontrol edilir.  • Birim Testleri: Her donanım bileşeni ayrı ayrı test edilir. - Sensör veri gönderimi - Bellek okuma/yazma işlemleri - Güç modülü kontrolü - Zamanlayıcı birimi testleri  • Entegrasyon Testleri: Donanım bileşenlerinin birbirleriyle uyumlu çalışıp çalışmadığı kontrol edilir. - Sensör ile işlemci veri iletişimi - Bellek yönetimi ile görev planlayıcısının birlikte çalışması - Güç yönetim modülünün sistem performansına etkisi  • Sistem Testleri: Tüm sistem çalıştırılarak genel kararlılık ve performans kontrol edilir.
+3. Test Senaryoları
+Senaryo 1 — Sistem Açılış Testi - Sistem başlatılır. - İşlemci ve bellek kullanımı kontrol edilir. - Açılış sırasında hata oluşup oluşmadığı gözlemlenir.  Beklenen Sonuç: Sistem hatasız şekilde açılmalı ve tüm modüller aktif hale gelmelidir.  Senaryo 2 — Sensör Veri Kontrolü - Sensörden veri gönderilir. - Verinin işlemciye doğru aktarılıp aktarılmadığı kontrol edilir.  Beklenen Sonuç: Gönderilen veri kayıpsız şekilde sisteme ulaşmalıdır.  Senaryo 3 — Güç Yönetimi Testi - Sistem düşük güç moduna alınır. - Enerji tüketimi ölçülür.  Beklenen Sonuç: Sistem düşük güç modunda çalışmaya devam etmeli ve enerji tüketimi azalmalıdır.  Senaryo 4 — Aşırı Yük Testi - Sisteme aynı anda çok sayıda işlem gönderilir. - İşlemci sıcaklığı ve performans değerleri gözlemlenir.  Beklenen Sonuç: Sistem çökmeden stabil şekilde çalışmaya devam etmelidir.
+4. Hata Tespiti ve Doğrulama Yöntemleri
+Sistem üzerinde oluşabilecek donanım hatalarının belirlenebilmesi için çeşitli doğrulama yöntemleri kullanılmıştır.  • Hata kayıt sistemi (log kayıtları) • Sensör veri doğrulama kontrolü • Bellek hata taraması • Gerçek zamanlı hata izleme • Voltaj ve sıcaklık kontrolü  Hata tespiti sırasında elde edilen veriler kayıt altına alınarak sistemin hangi bölümünde sorun oluştuğu belirlenir.
+5. Sistem Kararlılığı Kontrolleri
+Sistemin uzun süre boyunca kesintisiz çalışabilmesi amacıyla kararlılık testleri uygulanmıştır.  • Uzun süreli çalışma testi • Ani yük değişimi testi • Yeniden başlatma testi • Güç kesintisi sonrası toparlanma testi  Bu testler sayesinde sistemin beklenmeyen durumlarda davranışı analiz edilmiştir.
+6. Performans ve Güvenilirlik Testleri
+Performans testleri sistem hızını ve işlem kapasitesini ölçmek amacıyla yapılmıştır.  • İşlemci kullanım oranı • Bellek kullanım miktarı • Tepki süresi • Veri aktarım hızı • Enerji tüketimi  Güvenilirlik testlerinde ise sistemin uzun süre hata vermeden çalışması değerlendirilmiştir.
+7. Test Akış Şeması
+Sistem Başlatılır ↓ Donanım Bileşenleri Kontrol Edilir ↓ Birim Testleri Yapılır ↓ Entegrasyon Testleri Uygulanır ↓ Performans ve Kararlılık Testleri Yapılır ↓ Hata Kontrolü Gerçekleştirilir ↓ Test Sonuçları Raporlanır ↓ Sistem Doğrulanır
+8. Sonuç
+Hazırlanan donanım test ve doğrulama planı sayesinde sistemin donanım bileşenleri ayrıntılı şekilde kontrol edilmiştir. Yapılan testler sonucunda sistemin kararlı, güvenilir ve gerçek zamanlı çalışmaya uygun olduğu gözlemlenmiştir. Oluşturulan doğrulama süreçleri sayesinde oluşabilecek donanım hatalarının erken aşamada tespit edilmesi amaçlanmıştır.
