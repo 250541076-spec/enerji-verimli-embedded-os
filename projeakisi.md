@@ -6,7 +6,6 @@ Mart 2026
 BÖLÜM 1 — EZGİ
 
 
-
 1.1  Bu Proje Nedir ve Neden Gerekli?
 Günümüzde akıllı saatler, endüstriyel sensörler, tıbbi cihazlar ve otonom araçlar gibi milyarlarca cihaz küçük işlemciler üzerinde çalışmaktadır. Bu cihazların ortak sorunu şudur: sınırlı pil ömrü ile gerçek zamanlı, güvenilir çalışma zorunluluğu aynı anda karşılanmak zorundadır.
 Bu proje; düşük güç tüketimi ve gerçek zamanlı performansı birlikte sağlayan, gömülü cihazlar için optimize edilmiş bir işletim sistemi geliştirmeyi hedeflemektedir. Kullanılan teknolojiler: C, Assembly, Linux Kernel ve ARM mimarisi.
