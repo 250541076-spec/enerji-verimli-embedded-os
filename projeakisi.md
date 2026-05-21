@@ -1483,3 +1483,75 @@ Performans testleri sistem hızını ve işlem kapasitesini ölçmek amacıyla y
 Sistem Başlatılır ↓ Donanım Bileşenleri Kontrol Edilir ↓ Birim Testleri Yapılır ↓ Entegrasyon Testleri Uygulanır ↓ Performans ve Kararlılık Testleri Yapılır ↓ Hata Kontrolü Gerçekleştirilir ↓ Test Sonuçları Raporlanır ↓ Sistem Doğrulanır
 8. Sonuç
 Hazırlanan donanım test ve doğrulama planı sayesinde sistemin donanım bileşenleri ayrıntılı şekilde kontrol edilmiştir. Yapılan testler sonucunda sistemin kararlı, güvenilir ve gerçek zamanlı çalışmaya uygun olduğu gözlemlenmiştir. Oluşturulan doğrulama süreçleri sayesinde oluşabilecek donanım hatalarının erken aşamada tespit edilmesi amaçlanmıştır.
+------------------------------------------------------------------
+Çoklu İş Parçacığı Senkronizasyonu - Ezgi Efsa Güleç
+
+Özet
+Modern yazılım sistemleri, kullanıcı beklentilerinin artması ve donanımın çok çekirdekli mimariye geçmesiyle birlikte büyük ölçüde eş zamanlı çalışmak zorundadır. Bu durum, yazılım mühendisliği disiplini açısından yeni bir tasarım boyutu ortaya çıkarmıştır: birden fazla iş parçacığının paylaşılan kaynaklara güvenli erişimini sağlamak. Bu çalışmada çoklu iş parçacığı senkronizasyonu yalnızca işletim sistemleri bağlamında değil, bir yazılım mühendisliği problemi olarak ele alınmıştır.
+1. Giriş
+Yazılım mühendisliği, IEEE'nin tanımıyla, yazılımın geliştirilmesi, işletilmesi ve bakımına sistematik, disiplinli ve ölçülebilir bir yaklaşım uygulamak demektir. Günümüzde geliştirilen yazılımların büyük bir kısmı eş zamanlı çalışan birden fazla iş parçacığı içerdiğinden, doğruluğun sağlanması yalnızca algoritmik düzeyde değil, aynı zamanda iş parçacıkları arası etkileşimlerin yönetilmesi düzeyinde de garanti edilmek zorundadır.
+Yanlış tasarlanmış bir senkronizasyon yapısı, programın bazen doğru bazen yanlış çalışmasına neden olur ve bu tür hatalar standart test süreçlerinde yakalanması çok zor olduğu için projenin sonraki aşamalarında ciddi maliyetler doğurabilir.
+2. Yazılım Mühendisliği Açısından Eş Zamanlılık
+2.1 Eş Zamanlılığın Tasarım Boyutu Olarak Konumu
+Yazılım tasarımı yalnızca işlevsel gereksinimleri karşılayan bir çözüm üretmekten ibaret değildir; performans, güvenilirlik ve sürdürülebilirlik gibi işlevsel olmayan gereksinimlerin de aynı anda dikkate alınması gerekir. Eş zamanlılık, bu işlevsel olmayan gereksinimlerin neredeyse tamamına dokunan bir tasarım kararıdır.
+2.2 Etkilenen Kalite Öznitelikleri
+ISO/IEC 25010 yazılım kalite modeli temel alındığında, senkronizasyon kararlarının doğrudan etkilediği başlıca öznitelikler:
+
+Doğruluk (correctness): Senkronizasyon eksikliği veri tutarsızlığına yol açar.
+Güvenilirlik (reliability): Deadlock veya starvation problemleri programın çalışmasını durdurabilir.
+Performans (performance): Aşırı kilit kullanımı paralelliği yok eder.
+Sürdürülebilirlik (maintainability): Karmaşık senkronizasyon kodu değişiklikleri tehlikeli hale getirir.
+Test edilebilirlik (testability): Eş zamanlı kodun davranışı zamanlamaya bağlı olduğundan klasik birim testleri yetersiz kalır.
+
+3. Temel Problem: Paylaşılan Durum ve Yarış Koşulu
+Eş zamanlı bir yazılımda iki veya daha fazla iş parçacığı aynı veriye eş zamanlı erişip en az biri yazma işlemi yapıyorsa, yarış koşulu (race condition) ortaya çıkar. Yarış koşullarının en sinsi yönü, hatanın her zaman görünmemesidir. Yazılım mühendisliği literatüründe bu tür hatalara Heisenbug adı verilir; çünkü programı hata ayıklayıcı altında çalıştırdığınızda zamanlama değişir ve hata kaybolur.
+Klasik kayıp güncelleme problemi: iki iş parçacığı aynı bakiye değişkenini güncellediğinde, beklenen son değer 200 iken gerçekte 100 olabilir; çünkü her ikisi de eski değeri okur.
+4. Senkronizasyon Mekanizmaları (Tasarım Araçları)
+4.1 Mutex
+Mutex (mutual exclusion), aynı anda yalnızca bir iş parçacığının sahip olabileceği bir kilittir. Kritik bölgenin dar tutulduğu ve basit bir karşılıklı dışlamanın yeterli olduğu durumlarda tercih edilir. Avantajı sadeliğidir; ancak unutulan unlock çağrıları ya da yanlış sırada alınan kilitler yazılım kararsızlığına yol açar.
+4.2 Semafor
+Semafor, Dijkstra tarafından önerilmiş daha esnek bir yapıdır ve sınırlı sayıda kaynağa erişimi yönetmek için uygundur. İki temel türü vardır: ikili semafor (binary) ve sayma semaforu (counting). Mutex'in aksine, semaforu kilitleyen ile açan iş parçacığının aynı olması gerekmez; bu esneklik sağlasa da yanlış kullanım riskini artırır. Klasik üretici-tüketici problemi semaforlarla çözülür.
+4.3 Monitör
+Monitör, mutex ve koşul değişkenlerini bir nesne içinde kapsülleyen daha yüksek seviyeli bir yapıdır. Nesne yönelimli tasarımla doğal biçimde örtüştüğü için modern dillerde tercih edilir. Java'nın synchronized anahtar sözcüğü bu yapının dile gömülü halidir.
+4.4 Kilitsiz Yaklaşımlar (Lock-free)
+Performansın kritik olduğu sistemlerde, atomik işlemler ve CAS (compare-and-swap) gibi düşük seviyeli yapılar kullanılarak kilit kullanmadan senkronizasyon sağlanabilir. Avantajı kilit darboğazını ortadan kaldırmasıdır; dezavantajı tasarımının ve doğrulanmasının çok daha zor olmasıdır.
+5. Eş Zamanlılık Tasarım Desenleri
+5.1 Üretici-Tüketici (Producer-Consumer)
+Üretici ve tüketici iş parçacıklarının sınırlı kapasiteli bir tampon üzerinden iletişim kurmasını sağlayan desendir. Çoğu mesaj kuyruğu sistemi bu desen üzerine kuruludur.
+5.2 Okuyucu-Yazıcı (Readers-Writers)
+Bir kaynağı çok sayıda iş parçacığının aynı anda okuyabildiği ama yazma sırasında tek başına erişim gerektiren senaryoları tanımlar. Veritabanı ve önbellek tasarımlarında sıkça karşılaşılır.
+5.3 İş Parçacığı Havuzu (Thread Pool)
+Her iş için yeni iş parçacığı oluşturmak yerine sınırlı sayıda iş parçacığını önceden hazırlayıp havuzdan kullanmayı öngörür. Modern web sunucuları bu deseni varsayılan olarak kullanır.
+5.4 Monitor Object Deseni
+Bir nesnenin metotlarının aynı anda yalnızca bir iş parçacığı tarafından çalıştırılmasını garanti eder. Java'nın synchronized yapısı bu desenin dile gömülmüş halidir.
+6. Yazılım Yaşam Döngüsünde Eş Zamanlılık
+AşamaEş Zamanlılık Açısından Yapılması GerekenlerGereksinim AnaliziEş zamanlı kullanıcı sayısı, yanıt süresi, tutarlılık gereksinimleri belirlenirSistem TasarımıEş zamanlılık modeli seçilir; bileşenler arası kilit hiyerarşisi belirlenirAyrıntılı TasarımUygun tasarım desenleri seçilir, sınıf düzeyinde senkronizasyon stratejileri tanımlanırKodlamaDilin sunduğu yapılar kodlama standartlarına uygun kullanılırTestYük testi, stres testi ve özel araçlar (ThreadSanitizer vb.) kullanılırBakımEş zamanlılık kararları belgelenir, tasarım belgeleri güncel tutulur
+7. Anti-Pattern'lar ve Gerçek Hayattan Vakalar
+7.1 Deadlock
+İki veya daha fazla iş parçacığının birbirinin tuttuğu kilitleri beklemesi durumudur. Coffman koşulları olarak bilinen dört şart aynı anda sağlandığında deadlock kaçınılmaz hale gelir. En yaygın çözüm, kilitlerin her zaman aynı sırada alınmasıdır.
+7.2 Starvation ve Öncelik Tersliği
+Starvation, bir iş parçacığının ihtiyacı olan kaynağa hiçbir zaman erişememesi durumudur. Öncelik tersliği ise düşük öncelikli bir iş parçacığının tuttuğu kilidi yüksek öncelikli bir iş parçacığının beklemesidir.
+7.3 Vaka: Mars Pathfinder (1997)
+NASA'nın Mars Pathfinder görevinde yaşanan sürekli sistem yeniden başlatmalarının sebebi klasik bir öncelik tersliği problemiydi. Sorun, öncelik kalıtımı (priority inheritance) protokolünün uzaktan etkinleştirilmesiyle çözüldü. Bu vaka, eş zamanlılık tasarımının milyonlarca dolarlık projeleri etkileyebileceğini göstermesi açısından önemlidir.
+7.4 Vaka: Therac-25 (1985-1987)
+Therac-25 radyoterapi cihazı, eş zamanlılık ve senkronizasyon hataları nedeniyle altı hastaya aşırı dozda radyasyon vererek üçünün ölümüne sebep olmuştur. Asıl sorun, kullanıcı arayüzü ile donanım kontrol iş parçacıkları arasındaki yarış koşullarının düzgün ele alınmamasıydı.
+8. Tasarımda İyi Uygulamalar
+
+Paylaşılan durumu azaltmak en güvenli yoldur; ortada paylaşılan veri yoksa senkronizasyon gerekmez.
+Kilit hiyerarşisi belirlemek deadlock'ları büyük ölçüde önler.
+Kritik bölgeyi mümkün olduğunca dar tutmak hem performansı artırır hem hata olasılığını azaltır.
+Yüksek seviyeli yapılar tercih edilmelidir (eş zamanlı koleksiyonlar, executor framework).
+Eş zamanlı kod özel testlerle doğrulanmalıdır; klasik birim testler yetersiz kalır.
+
+9. Sonuç
+Çoklu iş parçacığı senkronizasyonu, ilk bakışta işletim sistemleri alanına ait teknik bir konu gibi görünse de, modern yazılım mühendisliğinin tasarım, kalite ve süreç boyutlarıyla doğrudan kesişen bir alandır. Başarılı bir eş zamanlı yazılım, tek bir doğru kilit seçimine değil; gereksinim aşamasından bakım aşamasına kadar uzanan bütüncül bir mühendislik tutumuna bağlıdır. Mars Pathfinder ve Therac-25 vakaları, bu tutumun ihmal edildiğinde yol açtığı sonuçları çarpıcı biçimde göstermektedir.
+Kaynakça
+
+Sommerville, I. (2015). Software Engineering (10. baskı). Pearson.
+Gamma, E. ve ark. (1994). Design Patterns: Elements of Reusable Object-Oriented Software. Addison-Wesley.
+Schmidt, D. ve ark. (2000). Pattern-Oriented Software Architecture, Volume 2. Wiley.
+Goetz, B. ve ark. (2006). Java Concurrency in Practice. Addison-Wesley.
+Silberschatz, A. ve ark. (2018). Operating System Concepts (10. baskı). Wiley.
+Leveson, N. G. ve Turner, C. S. (1993). An investigation of the Therac-25 accidents. IEEE Computer, 26(7), 18-41.
+Reeves, G. E. (1998). What really happened on Mars? Microprocessor Report, 12(16).
+ISO/IEC 25010:2011 — Systems and software Quality Requirements and Evaluation.
