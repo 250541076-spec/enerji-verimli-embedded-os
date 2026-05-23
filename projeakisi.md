@@ -1484,6 +1484,416 @@ Sistem Başlatılır ↓ Donanım Bileşenleri Kontrol Edilir ↓ Birim 
 8. Sonuç
 Hazırlanan donanım test ve doğrulama planı sayesinde sistemin donanım bileşenleri ayrıntılı şekilde kontrol edilmiştir. Yapılan testler sonucunda sistemin kararlı, güvenilir ve gerçek zamanlı çalışmaya uygun olduğu gözlemlenmiştir. Oluşturulan doğrulama süreçleri sayesinde oluşabilecek donanım hatalarının erken aşamada tespit edilmesi amaçlanmıştır.
 ------------------------------------------------------------------
+## Yarış Durumu (Race Condition) Tespiti ve Çözüm Mekanizmaları
+
+Eş zamanlı (concurrent) çalışan çoklu görevlerin veya kesme servis rutinlerinin (ISR), paylaşılan ortak bir kaynağa (hafıza alanı, donanım yazmacı, global değişken vb.) aynı anda erişmesi ve sistemin nihai çıktısının bu görevlerin çalışma sırasına bağlı olarak değişmesi durumuna **Yarış Durumu (Race Condition)** denir.
+
+### 1. Yarış Durumu Neden Oluşur ve Sisteme Etkileri Nelerdir?
+
+**Neden Oluşur?**
+Gömülü sistemlerde, işlemci seviyesindeki operasyonlar atomik (tek bir çevrimde biten) değildir. Örneğin, C dilinde yazılan `sayac++` işlemi, montaj (Assembly) diline çevrildiğinde üç adımdan oluşur:
+1. Veriyi hafızadan işlemci yazmacına (register) oku (Read).
+2. Yazmaçtaki değeri 1 artır (Modify).
+3. Yeni değeri tekrar hafızaya yaz (Write).
+
+Eğer birinci görev 1. adımı tamamladıktan sonra bir kesme (interrupt) gelir veya zamanlayıcı (scheduler) bağlam değişimi (context switch) yaparsa, ikinci görev de aynı eski veriyi okur. Bu durum, veri tutarsızlığına yol açar.
+
+**Sisteme Etkileri:**
+* **Veri Bozulması (Data Corruption):** Sensör verilerinin, batarya seviyesi ölçümlerinin veya kritik sistem bayraklarının yanlış hesaplanması.
+* **Kararsız Davranışlar (Unpredictable Behavior):** Sistemin bazen kusursuz çalışırken, bazen tamamen rastgele zamanlarda çökmesi veya kilitlenmesi (Heisenbug).
+* **Güç Tüketimi Artışı:** Yanlış durum bayrakları yüzünden işlemcinin uyku moduna (WFI) geçememesi ve sonsuz döngüde kalarak enerjiyi tüketmesi.
+
+---
+
+### 2. Yarış Durumu Örnek Senaryosu (Kritik Bölge Problemi)
+
+**Senaryo:** Sistemde toplam enerji tüketimini milisaniye cinsinden hesaplayan global bir `toplam_enerji` değişkeni olsun. İki farklı görev bu değişkeni güncelliyor:
+* **Görev A (Sensör Görevi):** Değeri 10 artırmak istiyor.
+* **Görev B (Ekran Görevi):** Değeri 5 artırmak istiyor.
+* `toplam_enerji` başlangıç değeri: **100** (Beklenen son değer: **115**)
+
+**Hatalı Akış Mantığı:**
+1. Görev A -> Hafızadaki 100 değerini okur (Yazmaç_A = 100).
+2. [BAĞLAM DEĞİŞİMİ / KESME OLUŞTU] -> Görev A durduruldu, Görev B başladı.
+3. Görev B -> Hafızadaki 100 değerini okur (Yazmaç_B = 100).
+4. Görev B -> Değeri 5 artırır (Yazmaç_B = 105).
+5. Görev B -> 105 değerini hafızaya yazar (Hafıza = 105).
+6. [BAĞLAM DEĞİŞİMİ] -> Görev B durduruldu, Görev A kaldığı yerden devam ediyor.
+7. Görev A -> Elindeki 100 değerini 10 artırır (Yazmaç_A = 110).
+8. Görev A -> 110 değerini hafızaya yazar (Hafıza = 110).
+
+**Sonuç:** `toplam_enerji` değişkeninin değeri 115 olması gerekirken **110** oldu. Görev B'nin yaptığı işlem tamamen kayboldu (Lost Update).
+
+---
+
+### 3. Önleme Yöntemleri ve Çözüm Mekanizmaları
+
+Yarış durumunu önlemek için ortak kaynağa erişilen kod blokları **Kritik Bölge (Critical Section)** olarak ilan edilir ve korunur:
+
+#### A. Mutex (Mutual Exclusion)
+Sadece tek bir görevin sahip olabileceği bir "anahtar" gibidir. Bir görev Mutex'i kilitlerse (Lock), işi bitip kilidi açana kadar (Unlock) başka hiçbir görev o kaynağa erişemez; erişmek isteyen görevler "Blocked" (Uyku) durumuna alınır.
+* *Örnek Kod Mantığı:*
+    ```c
+    void Sensor_Gorevi(void) {
+        osMutexWait(EnerjiMutex); // Kilitle
+        toplam_enerji += 10;      // Kritik Bölge
+        osMutexRelease(EnerjiMutex); // Kilidi Aç
+    }
+    ```
+
+#### B. Semaphore (Semafor)
+Belirli sayıda kaynağın eş zamanlı yönetimini sağlayan sayaç mekanizmalarıdır. İksel (Binary) semaforlar Mutex gibi çalışabilir ancak Mutex'ten farkı, kilidi hangi görev açtıysa onun kapatma zorunluluğunun olmamasıdır (Sinyalizasyon amaçlı da kullanılır).
+
+#### C. Kesme Maskeleme (Interrupt Disabling / Lock)
+Gömülü sistemlerde en hızlı ve en radikal çözümdür. Kritik bölgeye girmeden önce tüm donanımsal kesmeler kapatılır, işlem bitince geri açılır. Böylece işlem esnasında bağlam değişimi yaşanması fiziksel olarak engellenir.
+* *ARM Cortex-M Örnek Mantığı:*
+    ```c
+    __disable_irq();     // Kesmeleri kapat (Kritik Bölge Başlangıcı)
+    toplam_enerji += 10; 
+    __enable_irq();      // Kesmeleri geri aç (Kritik Bölge Bitişi)
+    ```
+
+----------------------------------------------------------------
+
+### 4. Yarış Durumu Tespit Araçları ve Teknikleri
+
+Yarış durumları çalışma zamanında (runtime) nadiren ve rastgele tetiklendiği için klasik test yöntemleriyle tespit edilmesi oldukça zordur. Bu yüzden şu araçlar ve teknikler kullanılır:
+
+#### A. Statik Analiz Araçları (Kod Derlenirken)
+Kod daha çalıştırılmadan, kaynak kod üzerindeki potansiyel mantık hatalarını ve korunmayan global değişkenleri tarar.
+* **Cppcheck / Clang-Tidy:** C/C++ projelerinde kilit mekanizması kullanılmadan erişilen paylaşımlı değişkenleri tespit edebilir.
+
+#### B. Dinamik Analiz Araçları (Çalışma Zamanında)
+* **ThreadSanitizer (TSan):** GCC ve Clang derleyicilerine entegre çalışan, simülasyon ortamında (örneğin QEMU üzerinde test kodları koşturulurken) hafıza erişimlerini izleyen güçlü bir araçtır. Aynı hafıza adresine en az biri "yazma" olmak üzere iki farklı iş parçacığının kilitsiz eriştiğini anında raporlar.
+
+#### C. GDB Donanımsal Watchpoint Tekniği (Hata Ayıklama)
+GDB (GNU Debugger) üzerinden simülatördeki veya gerçek karttaki bir değişkenin değeri her değiştiğinde işlemcinin durdurulması sağlanır.
+* `watch toplam_enerji` komutu verilerek, değişkene hangi görevin veya hangi kesmenin (ISR) hangi satırda müdahale ettiği adım adım izlenir. Böylece beklenmedik bir kesme bölünmesi anında yakalanır.
+------------------------------------------------------------------
+1. GİRİŞ VE PROJE PERSPEKTİFİ
+  Gömülü ve gerçek zamanlı işletim sistemlerinde (RTOS), deterministik (öngörülebilir) çalışma ve katı zaman kısıtlarına (deadlines) uyum hayati önem taşır. Projemiz kapsamında geliştirilen enerji verimli işletim sisteminde birden fazla görevin (task/thread); I2C/SPI veri yolları, UART modülleri, ADC kanalları veya paylaşılan bellek bölgeleri gibi kısıtlı donanım kaynaklarına aynı anda erişmeye çalışması kaçınılmazdır.
+  Bu eşzamanlı erişim yönetilemediği takdirde, sistem bütünlüğünü ve kararlılığını doğrudan tehdit eden Kilitlenme (Deadlock) durumu ortaya çıkar. Kilitlenme; iki veya daha fazla görevin, birbirlerinin ellerinde tuttukları kaynakları serbest bırakmasını beklemesi ve bu döngüsel süreç sebebiyle süresiz olarak askıda kalması (starvation/hang) durumudur.
+  Gömülü bir sistemde deadlock, projemizin ana çıktısı olan “Düşük Güç Tüketimi” ve “Güvenilirlik” hedefleriyle doğrudan çelişir.
+
+2. KİLİTLENMENİN DÖRT AKADEMİK KOŞULU (COFFMAN KOŞULLARI)
+  Bir gömülü sistem mimarisinde kilitlenmenin meydana gelebilmesi için aşağıdaki dört teorik koşulun aynı anda gerçekleşmesi gerekir. Bu koşullardan herhangi birinin sistemsel veya yazılımsal olarak kırılması, deadlock ihtimalini tamamen ortadan kaldırır :
+Karşılıklı Dışlama (Mutual Exclusion): En az bir donanım veya yazılım kaynağı, aynı anda sadece tek bir görev tarafından kilitlenebilir (paylaşılamaz) olmalıdır (Örn: Bir UART sürücüsüne aynı anda sadece bir thread'in veri yazabilmesi).
+Tut ve Bekle (Hold and Wait): Bir görev, halihazırda kendisine tahsis edilmiş bir kaynağı elinde tutarken (hold), başka bir görevin kontrolünde olan ikinci bir kaynağı talep etmeli ve onun için beklemeye (wait) geçmelidir.
+Devredilemezlik (No Preemption): Kaynaklar, onları elinde tutan görevin elinden işletim sistemi çekirdeği tarafından zorla alınamaz. Kaynak, ancak görevin işi bittiğinde kendi rızasıyla serbest bırakılmalıdır.
+Dairesel Bekleme (Circular Wait): Görevler arasında kapalı bir zincirleme bekleme halkasının oluşmasıdır. T1görevi T2'nin kaynağını beklerken, T2 görevi de T1'in elinde tuttuğu kaynağı beklemektedir.
+
+
+
+3. GÖMÜLÜ LİNUX VE ARM TABANLI SENARYO MODELLEMESİ
+  Projemiz kapsamında geliştirilen cihaz sürücülerinde (device drivers) karşılaşılması olası bir deadlock senaryosu, iki görev ve iki donanım kaynağı üzerinden aşağıda modellenmiştir:
+Görev 1 (T1): Yüksek öncelikli Sensör Veri Okuma Görevi.
+Görev 2 (T2):Düşük öncelikli Flash Belleğe Günlük (Log) Yazma Görevi.
+Kaynak A (RA): I2C Veri Yolu Sürücüsü Mutex'i.
+Kaynak B (RB): SPI Flash Bellek Sürücüsü Mutex'i.
+Senaryo Zaman Çizelgesi ve Akış Mantığı
+
+
+
+
+
+4. KİLİTLENMENİN SİSTEME ETKİLERİ
+Determinizm ve Gerçek Zamanlılık Kaybı: Görevlerin yanıt süreleri sonsuza uzar. Sistemin en kritik görevleri zaman sınırlarını (deadline) kaçırır ve RTOS kararlılığı çöker.
+Enerji Tüketimi Anomalileri: Eğer kilitlenme spinlock (meşgul bekleme) seviyesinde gerçekleşirse, CPU çekirdekleri %100 yük altında döngüde kalır. Bu durum, projenizin ana çıktısı olan pil ömrünü uzatma hedefleriyle tamamen çelişir ve bataryayı hızla tüketir.
+Watchdog Resetleri ve Güvenilirlik: Kilitlenen sistem, bekçi köpeği (Watchdog Timer) donanımı tarafından tespit edilir ve sistem donmaktan kurtulmak için resetlenir. Bu ani resetler, flash bellek üzerinde dosya sistemi bozulmalarına (corruption) ve kritik veri kayıplarına yol açar.
+
+5. KİLİTLENME YÖNETİMİ: ÖNLEME VE KAÇINMA STRATEJİLERİ
+  Kilitlenme durumlarını henüz ortaya çıkmadan engellemek amacıyla projenin çekirdek ve sürücü mimarisinde uygulanabilecek stratejiler şunlardır:
+A. Kaynak Erişim Sıralaması (Resource Ordering) - Önleme
+  Tüm thread'lerin kaynakları her zaman aynı hiyerarşik sıra ile talep etmesi kuralıdır. Örneğin; hem T1 hem T2 her koşulda önce RA (I2C) mutex'ini, ardından RB(SPI) mutex'ini istemek zorundadır. Bu kural sayesinde Dairesel Bekleme koşulu matematiksel olarak kırılır ve kilitlenme oluşamaz.
+B. Zaman Aşımı (Timeout) Mekanizmaları - Önleme
+  Gömülü Linux sürücü geliştirmede sonsuza kadar bloklanan mutex_lock() yapısı yerine, zaman aşımı desteği sunan yapılar kullanılacaktır. Belirlenen kritik süre (örn. 20ms) boyunca kaynağı alamayan görev, beklemeyi bırakacak, elindeki diğer kaynakları serbest bırakacak ve hata kodu (örn. -ETIMEDOUT) döndürerek sistemin kilitlenmesini engelleyecektir.
+C. Öncelik Tavanı Protokolü (Priority Ceiling Protocol) - Önleme
+  Gömülü sistemlerde kilitlenmeyle birlikte gelen en büyük tehlike Öncelik Tersinmesi (Priority Inversion) durumudur. Bir mutex'i kilitleyen düşük öncelikli görevin önceliği, o mutex'i bekleyen en yüksek öncelikli görevin seviyesine dinamik olarak yükseltilir (Priority Inheritance). Böylece araya giren orta öncelikli görevlerin zinciri kilitlemesi engellenir.
+D. Banker Algoritması - Kaçınma (Avoidance)
+  Sistemdeki tüm kaynakların ve görevlerin maksimum ihtiyaçlarını matrislerde tutarak, her kaynak talebinde sistemin "Güvenli Durumda" (Safe State) kalıp kalmayacağını analiz eder.
+Gömülü Sistem Kısıtı: Bu algoritma O(m × n2) işlem karmaşıklığına sahiptir. Sürekli dinamik hesaplama gerektirdiğinden CPU yükünü artırır ve projenin enerji verimliliği hedefine zarar verir. Bu nedenle projemizde statik önleme yöntemleri tercih edilmiştir.
+
+6. KİLİTLENME TESPİT VE KURTARMA YÖNTEMLERİ (DETECTION & RECOVERY)
+  Önleme mekanizmalarının bypass edildiği veya istisnai durumlar için sistemde dinamik bir tespit ve kurtarma mimarisi kurgulanmıştır:
+6.1. Tespit Yöntemleri
+Kaynak Tahsis Grafiği (Resource Allocation Graph - RAG): Çekirdek, görevler ve kaynaklar arasındaki ilişkiyi yönlü bir grafik olarak izler. Periyodik olarak çalışan bir arka plan görevi, bu grafikte bir Döngü (Cycle) olup olmadığını Tarjan veya benzeri döngü bulma algoritmalarıyla denetler.
+Yazılımsal Kalp Atışı (Heartbeat) Kontrolü: Sürücü seviyesindeki kritik görevlerin her birine belirli aralıklarla bir "Kalp Atışı" sinyali üretme zorunluluğu getirilir. Kilitlenen görev bu sinyali üretemediğinde sistem kilitlenmeyi teşhis eder.
+
+6.2. Kurtarma Yöntemleri
+Kilitlenme kesin olarak tespit edildiğinde uygulanacak hiyerarşik aksiyonlar şunlardır:
+Alt Sistem Resetlemesi (Subsystem Reset): Tüm işletim sistemini yeniden başlatmak yerine, sadece kilitlenmenin yaşandığı donanım hattından sorumlu cihaz sürücüsü modülü (Örn: I2C alt sistemi) register seviyesinde resetlenir. Çekirdek (Kernel), sürücüyü güvenli başlangıç ayarlarına çeker ve kilitlenen mutex'leri zorla serbest bırakır.
+Görüntüleme ve Yazılımsal Geri Alma (Rollback): Kaynağı elinden zorla alınan (preempt edilen) görevin kararsız duruma düşmemesi için, görevin durumu (register değerleri, program sayacı vb.) kayıtlı bir kontrol noktasına (checkpoint) geri döndürülür. Bu işlem ARM mimarisinde Context Switching (Bağlam Değişimi) yapılarak CPU register'larının (R0- R15) stack'ten yeniden yüklenmesini gerektirir.
+Kademeli Görev Sonlandırma (Task Termination): Deadlock kırılana kadar en düşük öncelikli görevden başlanarak thread'ler tek tek sonlandırılır. C dilinde ham pointer kullanımı nedeniyle oluşabilecek Bellek Sızıntılarını (Memory Leak) önlemek adına, sonlandırılan görevin kilitlediği dinamik bellek alanları (malloc blokları) kernel tarafından temizlenir.
+
+7. DOĞRULAMA VE TEST PLANLAMASI
+  Geliştirilen cihaz sürücülerinin kilitlenme güvenliği, Linux çekirdeğinde yerleşik olarak bulunan ve çalışma zamanı kilit doğrulaması yapan lockdep (Runtime Locking Correctness Validator) aracı ile donanım test aşamasında doğrulanacak ve elde edilen loglar "Donanım Test ve Doğrulama Raporu"na eklenecektir.
+KAYNAKÇA
+A. Silberschatz, P. B. Galvin, and G. Gagne, Operating System Concepts, 10th ed. Hoboken, NJ: Wiley, 2018, pp. 315-342. (Genel işletim sistemi, Coffman koşulları ve Kaynak Tahsis Grafiği teorisi).
+Q. Li and C. Yao, Real-Time Concepts for Embedded Systems. San Francisco, CA: CMP Books, 2011, pp. 112-128. (RTOS, zaman aşımı mekanizmaları ve Banker algoritmasının gömülü sistem kısıtları).
+J. W. S. Liu, Real-Time Systems. Upper Saddle River, NJ: Prentice Hall, 2000. (Öncelik Tavanı Protokolü, dairesel bekleme çözümleri ve görev sonlandırma senaryoları).
+P. Raghavan, A. Amritanshu, and S. Srivastav, Embedded Linux System Design and Development. Boca Raton, FL: Auerbach Publications, 2019. (Gömülü Linux mimarilerinde güç yönetimi, watchdog entegrasyonu ve kalp atışı kontrolleri).
+
+
+--------------------------------------------------------------------
+KRİTİK BÖLGE OPTİMİZASYONU
+Eş zamanlı (concurrent) programlamada birden fazla iş parçacığı (thread) ortak kaynaklara — değişkenler, dosyalar, veritabanı bağlantıları gibi — aynı anda erişmeye çalışabilir. Bu paylaşılan kaynağa yalnızca tek bir thread'in aynı anda erişebildiği kod bloğuna Kritik Bölge (Critical Section) denir.
+Temel Tanım:
+Kritik Bölge: Ortak bir kaynağa sıralı (atomik) erişimi zorunlu kılan ve aynı anda yalnızca bir thread tarafından çalıştırılabilen kod parçasıdır.
+1.1 Kritik Bölgenin Sağlaması Gereken Koşullar
+Karşılıklı Dışlama (Mutual Exclusion): Aynı anda yalnızca bir thread kritik bölgede bulunabilir.
+İlerleme (Progress): Kritik bölgede hiçbir thread yoksa, girmek isteyen thread engellenmemelidir.
+Sınırlı Bekleme (Bounded Waiting): Bir thread'in kritik bölgeye girmek için sonsuza kadar beklemesi önlenmelidir.
+1.2 Temel Mantık Akışı
+// Mantık Akışı
+┌─────────────────────────────────────────────────────┐
+│              KRİTİK BÖLGE YAŞAM DÖNGÜSÜ            │
+├─────────────────────────────────────────────────────┤
+│  Thread A        Kilit          Thread B            │
+│     │─lock_acq()─>│                │               │
+│     │<──(başarı)──│                │               │
+│     │   [KRİTİK   │  B lock_acq()─>│               │
+│     │    BÖLGE]   │<──(ENGELLEME)──│               │
+│     │─lock_rel()─>│                │               │
+│     │             │──(serbest)────>│               │
+│     │             │  [KRİTİK BÖLGE]│               │
+└─────────────────────────────────────────────────────┘
+
+2. Performans Sorunları
+Kritik bölgelerin yanlış veya aşırı kullanımı, çok çekirdekli sistemlerde ciddi darboğazlara yol açar.
+ 
+2.1 Lock Çakışması (Lock Contention)
+Birden fazla thread'in aynı kilidi edinmeye çalışması; thread'ler bekleme kuyruğunda birikerek CPU'yu boşa harcar.
+
+// C++
+// SORUNLU — tüm fonksiyon kilitli
+void process_data(int user_id) {
+    lock_guard<mutex> lk(global_lock);  // her şey kilitli!
+    fetch_from_db(user_id);             // yavaş ağ I/O
+    compute_result();                   // ağır hesaplama
+    write_to_cache(user_id);
+}
+2.2 Ölümcül Kilitlenme (Deadlock)
+İki thread birbirinin tuttuğu kilidi beklediğinde sistem tamamen durur.
+
+// Deadlock
+Thread A:  lock(mutex_1) → lock(mutex_2)  // 1'i alır, 2'yi bekler
+Thread B:  lock(mutex_2) → lock(mutex_1)  // 2'yi alır, 1'i bekler
+Sonuç: İkisi de sonsuza kadar bekler → Sistem durur!
+
+2.3 Priority Inversion
+Düşük öncelikli thread kritik bölgedeyken, yüksek öncelikli thread aynı kilidi bekliyorsa; yüksek öncelikli thread gereksiz yere bloke olur.
+ 
+2.4 False Sharing
+Farklı thread'lerin farklı değişkenler üzerinde çalışmasına rağmen bu değişkenlerin aynı CPU önbellek satırında bulunması, gereksiz geçersizleştirmelere neden olur.
+
+// C++
+// YANLIŞ — aynı cache line
+struct { int counter_a; int counter_b; };
+ 
+// DOĞRU — padding ile hizalama
+struct {
+    alignas(64) int counter_a;
+    alignas(64) int counter_b;
+};
+
+2.5 Sorun Özeti
+Sorun                	Belirti	                            Etki
+Lock Contention	      Thread'ler kuyruğa girer	          Yüksek
+Deadlock            	Sistem tamamen durur	              Kritik
+Priority Inversion	  Yüksek öncelikli iş gecikmesi	      Orta–Yüksek
+False Sharing	        Gereksiz önbellek invalidasyonu	    Orta
+
+3. Optimizasyon Yöntemleri
+3.1 Lock Granülaritesini Azaltma
+Sadece paylaşılan kaynağa erişilen satırlar kilitlenmelidir; uzun I/O ve ağır hesaplama kilit dışında tutulmalıdır.
+
+// C++ — Granülarite
+// ÖNCESİ — tüm fonksiyon kilitli (kötü)
+void bad_approach() {
+    lock_guard<mutex> lk(mtx);
+    auto data   = fetch_from_db();      // yavaş — kilit altında!
+    auto result = heavy_compute(data);  // ağır — kilit altında!
+    shared_cache = result;
+}
+ 
+// SONRASI — sadece paylaşılan erişim kilitli (iyi)
+void good_approach() {
+    auto data   = fetch_from_db();      // kilit dışı
+    auto result = heavy_compute(data);  // kilit dışı
+    { lock_guard<mutex> lk(mtx); shared_cache = result; }
+}
+
+3.2 Read-Write Lock
+Okuma yoğun senaryolarda birden fazla thread eş zamanlı okuyabilir; yazma sırasında exclusive kilit kullanılır.
+
+# Python — Read-Write Lock
+class SharedCache:
+    def read(self, key):
+        return self._data.get(key)   # kilit yok — hepsi okuyabilir
+ 
+    def write(self, key, value):
+        with self._lock:             # exclusive kilit
+            self._data[key] = value
+
+3.3 Atomic Operasyonlar
+Sayaç ve bayrak gibi basit işlemler için donanım destekli atomik operasyonlar, mutex'ten çok daha hızlıdır.
+
+// C++ — Atomic
+// Mutex'li (yavaş): ~850 ms / 10M işlem / 8 thread
+mutex mtx; int counter = 0;
+void bad()  { lock_guard<mutex> lk(mtx); ++counter; }
+ 
+// Atomic (hızlı): ~95 ms — 9x daha hızlı
+atomic<int> counter{0};
+void fast() { counter.fetch_add(1, memory_order_relaxed); }
+
+3.4 Thread-Local Storage
+Her thread'in kendi özel kopyasına sahip olduğu TLS ile paylaşım ortadan kalkar, kritik bölgeye ihtiyaç kalmaz.
+
+// C++ — TLS
+thread_local int local_counter = 0;  // her thread'in kendi kopyası
+void worker() { ++local_counter; }   // kilit yok, çakışma yok
+
+3.5 Deadlock-Safe Kilit Sıralaması
+Birden fazla mutex gerektiğinde, tüm thread'lerin kilitleri aynı sırayla edinmesi deadlock'u tamamen önler.
+
+// C++ — Deadlock-Safe
+// YANLIŞ: farklı sıralar → DEADLOCK
+// Thread A: lock(m1) -> lock(m2)
+// Thread B: lock(m2) -> lock(m1)
+ 
+// DOĞRU: std::scoped_lock atomik edinim
+void safe_transfer(Account& from, Account& to, int amount) {
+    std::scoped_lock lk(from.mutex, to.mutex);
+    from.balance -= amount;
+    to.balance   += amount;
+}
+
+3.6 Producer-Consumer Deseni
+Paylaşılan veriye doğrudan erişim yerine mesaj kuyruğu kullanmak, kritik bölge ihtiyacını minimuma indirir.
+
+# Python — Producer-Consumer
+import threading, queue
+task_queue = queue.Queue(maxsize=100)
+ 
+def producer():
+    for item in data_stream():
+        task_queue.put(item)      # thread-safe
+ 
+def consumer():
+    while True:
+        item = task_queue.get()   # thread-safe
+        if item is None: break
+        process(item)             # paylaşılan kaynak yok!
+
+4. Strateji Karşılaştırması
+Yöntem                	Kullanım Durumu                	Performans	                   Karmaşıklık
+Granülarite Azaltma    	Her senaryoda                  	Yüksek	                       Düşük
+Read-Write Lock	        Okuma yoğun	                    Yüksek	                       Orta
+Atomic Operasyonlar	    Sayaç / bayrak                 	Çok yüksek	                   Düşük
+Thread-Local Storage   	Thread başı veri	              Çok yüksek	                   Düşük
+Lock Sıralaması	        Çoklu mutex	                    — (güvenlik)	                 Orta
+Producer-Consumer      	Üretim-tüketim akışı	          Yüksek	                       Orta
+
+5.Altın Kurallar
+Kritik Bölge Optimizasyonunda Temel İlkeler
+1. Kilidi mümkün olduğunca kısa tut — I/O ve ağır hesaplamayı kilit dışına al.
+2. Basit veri türleri için atomic kullan — mutex gerekmez.
+3. Ölü kilide karşı kilitleri her zaman aynı sırayla edin.
+4. Okuma yoğunsa Read-Write Lock tercih et.
+5. En iyi kilit, hiç kilide gerek duyulmayan tasarımdır.
+
+
+Not: Bu döküman Yasemin'in proje bölümü için taslak niteliğindedir. Kod örnekleri C++ ve Python üzerinden verilmiştir; projenin kullandığı dile göre uyarlanabilir.
+
+
+-----------------------------------------------------------------------------
+3. İş Parçacığı Havuzu Uygulaması
+Thread Pool Mimarisi, Çalışma Mantığı ve Performans Katkısı
+3.1 Temel Kavram: Thread Pool Nedir?
+Tanım:Thread pool, önceden başlatılmış ve tekrar kullanılmak üzere bekletilen iş parçacıklarından oluşan yönetilen bir kaynak havuzudur. Görevler kuyruğa alınır ve uygun olan ilk thread tarafından işlenir.
+3.2 Neden Thread Pool Kullanılır?
+
+3.2.1 Thread Oluşturmanın Maliyeti
+Bir işletim sisteminde yeni bir thread oluşturmak görünürde basit bir işlem gibi görünse de arka planda ciddi kaynak tüketimi gerektirir:
+
+Çekirdek (kernel) seviyesinde yeni bir yapı ayrılması gerekir
+Stack (yığın) belleği tahsis edilmeli ve başlangıç değerleri yazılmalıdır
+İşletim sistemi zamanlayıcısına (scheduler) kayıt yapılmalıdır
+Thread ilk kez CPU'ya geçtiğinde bağlam yükleme maliyeti (context loading) oluşur
+
+Tipik bir thread oluşturma işlemi işletim sistemine göre değişmekle birlikte ortalama 0.5 ms ile 2 ms arasında zaman alır. Saniyede yüzlerce veya binlerce istek alan bir sistemde bu maliyet hızla birikir.
+
+3.2.2 Kontrol Edilemeyen Kaynak Tüketimi
+Thread pool kullanılmadığında, gelen her isteğe karşılık yeni bir thread açılır. Anlık trafik artışlarında (örneğin bir flash sale senaryosunda) aynı anda binlerce thread oluşturulabilir; bu durum:
+
+Aşırı bellek tüketimine (her thread varsayılan olarak 512 KB - 8 MB stack kullanır),
+CPU'nun thread yönetimiyle meşgul olmasına (thrashing),
+Ve nihayetinde sistem çökmesine neden olabilir.
+
+3.3 Thread Pool'un Sistemi Nasıl Hızlandırdığı
+
+3.3.1 Karşılaştırmalı Analiz
+Kriter	                          Thread Pool Olmadan	                                              Thread Pool ile
+Thread oluşturma maliyeti	        Her istek için yeniden oluşturulur                              	Önceden oluşturulur, maliyet yok
+Bellek kullanımı	                Kontrolsüz artabilir	                                            Sabit ve öngörülebilir
+Yanıt süresi (ilk istek)	        Gecikmeli (thread başlatma)	                                      Hemen yanıt (thread hazır)
+Eşzamanlı istek kontrolü	        Sınırsız → sistem çöküşü riski                                   	Maksimum thread sayısı sınırlı
+Sistem kararlılığı	              Yük altında düşük	                                                Yüksek ve öngörülebilir
+Kaynak temizleme	                Manuel yönetim gerektirir	                                        Havuz tarafından otomatik yönetilir
+
+3.3.2 Somut Senaryo: Web Sunucusunda İstek İşleme
+
+Thread pool kullanılmayan bir web sunucusunu ele alalım. 1.000 eşzamanlı istek geldiğinde:
+
+1.000 yeni thread oluşturulur → ortalama 1 ms × 1.000 = 1 saniye saf thread açma maliyeti
+Her thread ~1 MB bellek kullanıyorsa → 1 GB anlık bellek tüketimi
+İşler bitince 1.000 thread yok edilir → tekrar bellek işlemleri
+
+Aynı senaryo 50 thread'lik bir havuz ile:
+
+50 thread önceden hazır bekler, sıfır oluşturma maliyeti
+İstekler kuyruğa alınır, thread'ler tamamladıkça yeni görevi alır
+Bellek tüketimi sabit ve öngörülebilir (~50 MB)
+Sistem yük altında kararlılığını korur
+Sonuç: 50 thread'lik havuz, 1.000 thread yerine sabit ve düşük maliyetle çok daha yüksek verimlilik sağlar. Throughput (işlem hacmi) artar, yanıt süreleri tutarlı kalır.
+
+3.4 Kullanım Senaryosu ve Akış Açıklaması
+
+3.4.1 Senaryo: Çok Kullanıcılı Dosya Dönüştürme Servisi
+
+Kullanıcıların belge yükleyip farklı formatlara (PDF, DOCX, TXT) dönüştürdüğü bir servis düşünelim. Her dönüştürme işlemi yaklaşık 200-500 ms sürmektedir ve eşzamanlı olarak onlarca kullanıcı işlem başlatabilir.
+
+3.4.2 Sistem Akışı
+
+1)Başlatma:Uygulama açılışında thread pool başlatılır. Örneğin 10 worker thread önceden oluşturulur ve görev kuyruğunu dinlemeye başlar.
+2)Görev Kuyruğu:Kullanıcıdan dönüştürme isteği geldiğinde doğrudan bir thread'e atanmaz; önce görev kuyruğuna (task queue) eklenir.
+3)Thread Ataması:Boşta (idle) olan herhangi bir thread kuyruğu kontrol eder ve bekleyen görevi alır. Thread meşgulse kuyruktaki görev diğer thread'i bekler.
+4)İşlem ve Geri Dönüş:Thread görevi işler (dosyayı dönüştürür), sonucu kullanıcıya iletir ve hemen kuyruğa döner. Yok edilmez, yeniden kullanılmaya hazırdır.
+5)Ölçekleme:Trafik artarsa havuz dinamik olarak genişletilebilir (örn. min: 10, max: 50 thread). Trafik düşünce fazla thread'ler kademeli olarak sona erdirilir.
+
+3.4.3 Temel Parametreler
+
+Parametre	                        Açıklama	                                    Örnek Değer
+Core Pool Size                   	Minimum aktif thread sayısı                  	10
+Maximum Pool Size	                Yük altında açılacak max thread               50
+Queue Capacity	                  Kuyruktaki max bekleyen görev	                200
+Keep-Alive Time	                  Boşta kalan thread'in bekleme süresi	        60 saniye
+Rejection Policy	                Kuyruk dolduğunda uygulanan strateji	        CallerRunsPolicy
+
+
+3.5 Performansa Katkısı: Özet
+
+Thread pool mimarisi, doğru yapılandırıldığında sisteme üç kritik katkı sağlar:
+
+Gecikme (Latency) Azaltımı: Thread oluşturma maliyeti ortadan kalktığı için ilk yanıt süresi belirgin biçimde kısalır. Yük testlerinde bu fark genellikle %30-60 arasında ölçülmektedir.
+Throughput Artışı: Thread'lerin yeniden kullanımı sayesinde aynı donanım üzerinde daha fazla işlem gerçekleştirilebilir. Kaynak israfı minimize edilir.
+Sistem Kararlılığı: Maksimum thread sayısı sınırlandırıldığından ani yük artışları sistemi çöküşe sürükleyemez. Kuyruk mekanizması doğal bir tampon görevi görür.
+
+ÖNERİ
+Thread pool boyutu doğrudan performansı etkiler. I/O ağırlıklı işlemler için daha fazla thread (CPU sayısı × 2-4), CPU ağırlıklı işlemler için CPU sayısına eşit ya da biraz fazla thread tercih edilmesi önerilir.
+
+--------------------------------------------------------------------
 Çoklu İş Parçacığı Senkronizasyonu - Ezgi Efsa Güleç
 
 Özet
@@ -1545,13 +1955,21 @@ Eş zamanlı kod özel testlerle doğrulanmalıdır; klasik birim testler yeters
 
 9. Sonuç
 Çoklu iş parçacığı senkronizasyonu, ilk bakışta işletim sistemleri alanına ait teknik bir konu gibi görünse de, modern yazılım mühendisliğinin tasarım, kalite ve süreç boyutlarıyla doğrudan kesişen bir alandır. Başarılı bir eş zamanlı yazılım, tek bir doğru kilit seçimine değil; gereksinim aşamasından bakım aşamasına kadar uzanan bütüncül bir mühendislik tutumuna bağlıdır. Mars Pathfinder ve Therac-25 vakaları, bu tutumun ihmal edildiğinde yol açtığı sonuçları çarpıcı biçimde göstermektedir.
-Kaynakça
-
-Sommerville, I. (2015). Software Engineering (10. baskı). Pearson.
-Gamma, E. ve ark. (1994). Design Patterns: Elements of Reusable Object-Oriented Software. Addison-Wesley.
-Schmidt, D. ve ark. (2000). Pattern-Oriented Software Architecture, Volume 2. Wiley.
-Goetz, B. ve ark. (2006). Java Concurrency in Practice. Addison-Wesley.
-Silberschatz, A. ve ark. (2018). Operating System Concepts (10. baskı). Wiley.
-Leveson, N. G. ve Turner, C. S. (1993). An investigation of the Therac-25 accidents. IEEE Computer, 26(7), 18-41.
-Reeves, G. E. (1998). What really happened on Mars? Microprocessor Report, 12(16).
-ISO/IEC 25010:2011 — Systems and software Quality Requirements and Evaluation.
+-------------------------------------------------------------------------------------
+Paralel Algoritma Tasarımı
+Paralel algoritmalar, bir işlemin birden fazla işlemci veya çekirdek tarafından aynı anda yürütülmesini sağlayan algoritma yapılarıdır. Bu yaklaşım sayesinde büyük ve karmaşık işlemler daha kısa sürede tamamlanabilmektedir. Özellikle günümüzde çok çekirdekli işlemcilerin yaygınlaşmasıyla birlikte paralel işlem teknikleri yazılım geliştirme süreçlerinde önemli bir yere sahip olmuştur.
+1. Paralel Algoritma Mantığı
+Paralel algoritmalarda temel amaç, büyük bir işlemi daha küçük parçalara ayırarak bu parçaların eş zamanlı şekilde çalıştırılmasını sağlamaktır. Bu yapı sayesinde işlem süresi azalır ve sistem kaynakları daha verimli kullanılır. Paralel çalışma sırasında görevler farklı işlem birimlerine dağıtılarak aynı anda yürütülür.
+2. İşlem Bölme Yöntemleri
+Paralel algoritmalarda görev paylaşımı oldukça önemlidir. İşlem bölme yöntemleri genel olarak veri bölme ve görev bölme olmak üzere ikiye ayrılır. Veri bölmede büyük veri kümeleri parçalara ayrılarak farklı işlemcilere dağıtılır. Görev bölmede ise farklı işlemler aynı anda yürütülür.
+3. Çok Çekirdekli Sistemler
+Modern bilgisayarlarda bulunan çok çekirdekli işlemciler paralel algoritmaların temel çalışma altyapısını oluşturmaktadır. Her çekirdek farklı bir görevi aynı anda işleyebilir. Bu durum özellikle büyük veri işleme, yapay zeka ve görüntü işleme uygulamalarında performans artışı sağlamaktadır.
+4. Thread (İş Parçacığı) Kullanımı
+Paralel programlamada thread yapıları sıkça kullanılmaktadır. Threadler bir program içerisindeki bağımsız çalışma birimleridir. Birden fazla thread aynı anda çalışarak işlemlerin daha hızlı tamamlanmasına katkı sağlar. Ancak threadler arasında veri paylaşımı yapılırken senkronizasyon sorunları oluşabileceği için dikkatli bir yapı kurulmalıdır.
+5. Performans Avantajları
+Paralel algoritmalar işlem süresini azaltarak performans artışı sağlar. Özellikle büyük veri işlemlerinde ve karmaşık hesaplamalarda sistem verimliliği önemli ölçüde yükselir. İş yükünün işlemciler arasında paylaşılması sayesinde kaynak kullanımı dengeli hale gelir.
+6. Kullanım Alanları
+Paralel algoritmalar birçok alanda kullanılmaktadır. Bunlar arasında yapay zeka uygulamaları, veri analizi, görüntü işleme, oyun motorları, bilimsel hesaplamalar ve siber güvenlik sistemleri yer almaktadır. Yüksek işlem gücü gerektiren uygulamalarda paralel çalışma büyük avantaj sağlamaktadır.
+7. Sonuç
+Paralel algoritmalar modern yazılım sistemlerinde hız, performans ve verimlilik açısından önemli avantajlar sunmaktadır. İşlemlerin aynı anda yürütülmesi sayesinde büyük veri ve karmaşık hesaplama problemleri daha kısa sürede çözülebilmektedir. Bu nedenle paralel işlem teknikleri gelecekte yazılım mühendisliği alanında daha yaygın şekilde kullanılacaktır.
+------------------------------------------------------------------------------------
