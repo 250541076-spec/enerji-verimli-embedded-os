@@ -1,5 +1,3 @@
----
-
 # Düşük Seviye Optimizasyon Teknikleri
 
 *Gömülü Sistemlerde İşlemci Performansını Artırmak İçin Loop Unrolling, Inline Functions ve Register Kullanımı*
