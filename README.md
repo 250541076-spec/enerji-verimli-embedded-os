@@ -55,6 +55,7 @@ EV-OS/
     ├── Profilleme_Araclari_Performans_Analizi.docx
     ├── dusuk-seviye-optimizasyon-markdown.md
     └── Embedded OS Wireframe.pdf
+```
 🛠️ Derleme Kılavuzu (Build Guide)
 Proje, çapraz derleyici (cross-compiler) mimarisi üzerine kurulmuştur. Sistemi derlemek için bilgisayarınızda GNU Embedded Toolchain for ARM (arm-none-eabi-gcc) ve CMake kurulu olmalıdır.
 
