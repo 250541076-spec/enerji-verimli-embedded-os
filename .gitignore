@@ -1,0 +1,32 @@
+# CMake build dosyaları
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CMakeScripts/
+Testing/
+Makefile
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+
+# Derlenmiş çıktılar
+*.elf
+*.bin
+*.hex
+*.map
+*.o
+*.a
+*.so
+
+# Build dizinleri
+build/
+dist/
+out/
+
+# Geliştirme ortamı
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo

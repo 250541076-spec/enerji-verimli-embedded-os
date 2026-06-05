@@ -213,7 +213,7 @@ ekip üyelerini ekler
 
 Projenin doğru sırası
 En mantıklı sıra şu:
-1️⃣ Ezgi → Proje analizi 2️⃣ Sude → Gereksinimler 3️⃣ Yasemin → Teknoloji seçimi 4️⃣ Hamza → Geliştirme ortamı 5️⃣ Sabiha → Git kurulumu
+1️⃣ Ezgi → Proje analizi2️⃣ Sude → Gereksinimler3️⃣ Yasemin → Teknoloji seçimi4️⃣ Hamza → Geliştirme ortamı5️⃣ Sabiha → Git kurulumu
 KAYNAKLAR
 
 [1]  Poobalan, A., Zarandi, H.R., Shanthakumar, P. (2024). DyUnS: Dynamic and uncertainty-aware task scheduling for multiprocessor embedded systems. Sustainable Computing: Informatics and Systems, 43, 101013.
@@ -473,7 +473,7 @@ KAYNAKLAR
 Teknoloji Araştırması ve Seçimi
 
 Gömülü Sistemler için Enerji Verimli İşletim Sistemi.
-Sorumlu: Yasemin Ubeyd. 
+Sorumlu: Yasemin Ubeyd.
 
 Giriş
 Bu bölümde, “Gömülü Sistemler için Enerji Verimli İşletim Sistemi” projesi için en uygun teknolojiler araştırılmış ve sistem gereksinimlerine göre ayrıntılı biçimde değerlendirilmiştir. Projenin temel amacı; düşük güç tüketimi sağlayan, gerçek zamanlı çalışabilen, sınırlı donanım kaynaklarına sahip gömülü cihazlarda güvenilir şekilde çalışacak bir işletim sistemi geliştirmektir.
@@ -1470,17 +1470,17 @@ Donanım Test ve Doğrulama Planı Tasarımı
 1. Amaç
 Bu çalışma kapsamında geliştirilen gerçek zamanlı işletim sistemi tabanlı yapının donanım tarafında güvenilir, kararlı ve hatasız çalışmasını sağlamak amacıyla test ve doğrulama planı hazırlanmıştır. Oluşturulan plan sayesinde sistem bileşenlerinin doğru çalışıp çalışmadığı kontrol edilerek oluşabilecek hataların önceden tespit edilmesi hedeflenmiştir.
 2. Donanım Test Süreçleri
-Donanım test süreçleri sistemin temel bileşenlerinin ayrı ayrı ve birlikte çalışmasını kontrol etmek amacıyla hazırlanmıştır. Testler belirli aşamalara ayrılmıştır.  • Başlangıç Testleri: Sistemin ilk açılış sürecinde işlemci, RAM, sensörler ve giriş-çıkış birimlerinin düzgün çalışıp çalışmadığı kontrol edilir.  • Birim Testleri: Her donanım bileşeni ayrı ayrı test edilir. - Sensör veri gönderimi - Bellek okuma/yazma işlemleri - Güç modülü kontrolü - Zamanlayıcı birimi testleri  • Entegrasyon Testleri: Donanım bileşenlerinin birbirleriyle uyumlu çalışıp çalışmadığı kontrol edilir. - Sensör ile işlemci veri iletişimi - Bellek yönetimi ile görev planlayıcısının birlikte çalışması - Güç yönetim modülünün sistem performansına etkisi  • Sistem Testleri: Tüm sistem çalıştırılarak genel kararlılık ve performans kontrol edilir.
+Donanım test süreçleri sistemin temel bileşenlerinin ayrı ayrı ve birlikte çalışmasını kontrol etmek amacıyla hazırlanmıştır. Testler belirli aşamalara ayrılmıştır.• Başlangıç Testleri: Sistemin ilk açılış sürecinde işlemci, RAM, sensörler ve giriş-çıkış birimlerinin düzgün çalışıp çalışmadığı kontrol edilir.• Birim Testleri: Her donanım bileşeni ayrı ayrı test edilir.- Sensör veri gönderimi- Bellek okuma/yazma işlemleri- Güç modülü kontrolü- Zamanlayıcı birimi testleri• Entegrasyon Testleri: Donanım bileşenlerinin birbirleriyle uyumlu çalışıp çalışmadığı kontrol edilir.- Sensör ile işlemci veri iletişimi- Bellek yönetimi ile görev planlayıcısının birlikte çalışması- Güç yönetim modülünün sistem performansına etkisi• Sistem Testleri: Tüm sistem çalıştırılarak genel kararlılık ve performans kontrol edilir.
 3. Test Senaryoları
-Senaryo 1 — Sistem Açılış Testi - Sistem başlatılır. - İşlemci ve bellek kullanımı kontrol edilir. - Açılış sırasında hata oluşup oluşmadığı gözlemlenir.  Beklenen Sonuç: Sistem hatasız şekilde açılmalı ve tüm modüller aktif hale gelmelidir.  Senaryo 2 — Sensör Veri Kontrolü - Sensörden veri gönderilir. - Verinin işlemciye doğru aktarılıp aktarılmadığı kontrol edilir.  Beklenen Sonuç: Gönderilen veri kayıpsız şekilde sisteme ulaşmalıdır.  Senaryo 3 — Güç Yönetimi Testi - Sistem düşük güç moduna alınır. - Enerji tüketimi ölçülür.  Beklenen Sonuç: Sistem düşük güç modunda çalışmaya devam etmeli ve enerji tüketimi azalmalıdır.  Senaryo 4 — Aşırı Yük Testi - Sisteme aynı anda çok sayıda işlem gönderilir. - İşlemci sıcaklığı ve performans değerleri gözlemlenir.  Beklenen Sonuç: Sistem çökmeden stabil şekilde çalışmaya devam etmelidir.
+Senaryo 1 — Sistem Açılış Testi- Sistem başlatılır.- İşlemci ve bellek kullanımı kontrol edilir.- Açılış sırasında hata oluşup oluşmadığı gözlemlenir.Beklenen Sonuç: Sistem hatasız şekilde açılmalı ve tüm modüller aktif hale gelmelidir.Senaryo 2 — Sensör Veri Kontrolü- Sensörden veri gönderilir.- Verinin işlemciye doğru aktarılıp aktarılmadığı kontrol edilir.Beklenen Sonuç: Gönderilen veri kayıpsız şekilde sisteme ulaşmalıdır.Senaryo 3 — Güç Yönetimi Testi- Sistem düşük güç moduna alınır.- Enerji tüketimi ölçülür.Beklenen Sonuç: Sistem düşük güç modunda çalışmaya devam etmeli ve enerji tüketimi azalmalıdır.Senaryo 4 — Aşırı Yük Testi- Sisteme aynı anda çok sayıda işlem gönderilir.- İşlemci sıcaklığı ve performans değerleri gözlemlenir.Beklenen Sonuç: Sistem çökmeden stabil şekilde çalışmaya devam etmelidir.
 4. Hata Tespiti ve Doğrulama Yöntemleri
-Sistem üzerinde oluşabilecek donanım hatalarının belirlenebilmesi için çeşitli doğrulama yöntemleri kullanılmıştır.  • Hata kayıt sistemi (log kayıtları) • Sensör veri doğrulama kontrolü • Bellek hata taraması • Gerçek zamanlı hata izleme • Voltaj ve sıcaklık kontrolü  Hata tespiti sırasında elde edilen veriler kayıt altına alınarak sistemin hangi bölümünde sorun oluştuğu belirlenir.
+Sistem üzerinde oluşabilecek donanım hatalarının belirlenebilmesi için çeşitli doğrulama yöntemleri kullanılmıştır.• Hata kayıt sistemi (log kayıtları)• Sensör veri doğrulama kontrolü• Bellek hata taraması• Gerçek zamanlı hata izleme• Voltaj ve sıcaklık kontrolüHata tespiti sırasında elde edilen veriler kayıt altına alınarak sistemin hangi bölümünde sorun oluştuğu belirlenir.
 5. Sistem Kararlılığı Kontrolleri
-Sistemin uzun süre boyunca kesintisiz çalışabilmesi amacıyla kararlılık testleri uygulanmıştır.  • Uzun süreli çalışma testi • Ani yük değişimi testi • Yeniden başlatma testi • Güç kesintisi sonrası toparlanma testi  Bu testler sayesinde sistemin beklenmeyen durumlarda davranışı analiz edilmiştir.
+Sistemin uzun süre boyunca kesintisiz çalışabilmesi amacıyla kararlılık testleri uygulanmıştır.• Uzun süreli çalışma testi• Ani yük değişimi testi• Yeniden başlatma testi• Güç kesintisi sonrası toparlanma testiBu testler sayesinde sistemin beklenmeyen durumlarda davranışı analiz edilmiştir.
 6. Performans ve Güvenilirlik Testleri
-Performans testleri sistem hızını ve işlem kapasitesini ölçmek amacıyla yapılmıştır.  • İşlemci kullanım oranı • Bellek kullanım miktarı • Tepki süresi • Veri aktarım hızı • Enerji tüketimi  Güvenilirlik testlerinde ise sistemin uzun süre hata vermeden çalışması değerlendirilmiştir.
+Performans testleri sistem hızını ve işlem kapasitesini ölçmek amacıyla yapılmıştır.• İşlemci kullanım oranı• Bellek kullanım miktarı• Tepki süresi• Veri aktarım hızı• Enerji tüketimiGüvenilirlik testlerinde ise sistemin uzun süre hata vermeden çalışması değerlendirilmiştir.
 7. Test Akış Şeması
-Sistem Başlatılır ↓ Donanım Bileşenleri Kontrol Edilir ↓ Birim Testleri Yapılır ↓ Entegrasyon Testleri Uygulanır ↓ Performans ve Kararlılık Testleri Yapılır ↓ Hata Kontrolü Gerçekleştirilir ↓ Test Sonuçları Raporlanır ↓ Sistem Doğrulanır
+Sistem Başlatılır↓Donanım Bileşenleri Kontrol Edilir↓Birim Testleri Yapılır↓Entegrasyon Testleri Uygulanır↓Performans ve Kararlılık Testleri Yapılır↓Hata Kontrolü Gerçekleştirilir↓Test Sonuçları Raporlanır↓Sistem Doğrulanır
 8. Sonuç
 Hazırlanan donanım test ve doğrulama planı sayesinde sistemin donanım bileşenleri ayrıntılı şekilde kontrol edilmiştir. Yapılan testler sonucunda sistemin kararlı, güvenilir ve gerçek zamanlı çalışmaya uygun olduğu gözlemlenmiştir. Oluşturulan doğrulama süreçleri sayesinde oluşabilecek donanım hatalarının erken aşamada tespit edilmesi amaçlanmıştır.
 ------------------------------------------------------------------
