@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(EnergyEfficientOS VERSION 1.0.0 LANGUAGES C)
+project(EnergyEfficientOS VERSION 1.0.0 LANGUAGES C ASM)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -17,8 +17,8 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -O2 -ffreestanding -nostdlib")
 include_directories(include)
 
 # Kaynak (source) kodlarını topla
-# çekirdek ve sürücü
-file(GLOB SOURCES "src/*.c" "drivers/*.c")
+# çekirdek, sürücü ve başlangıç (startup) dosyaları
+file(GLOB SOURCES "src/*.c" "src/*.s" "drivers/*.c")
 
 # imaj alınacak
 add_executable(os_kernel.elf ${SOURCES})
