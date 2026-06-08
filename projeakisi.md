@@ -2436,3 +2436,307 @@ Yüksek Determinizm / Kritik Gerçek Zamanlı Senaryolar (Örn: Motor Sürücül
 Karmaşık Veri İşleme Senaryoları (Örn: Gömülü Edge-AI): Donanım kısıtlamalarının yoğun olduğu ama hesaplama gücü gerektiren durumlarda veri önbellekleme (L1 Cache hat hizalaması) ve derleyicinin vektörizasyon (SIMD/NEON) eklentileri devreye alınmalıdır. 
 Sonuç olarak EV-OS; modüler güç yönetimi, optimize edilmiş gerçek zamanlı görev planlayıcısı ve minimal bellek ayak izi sayesinde akademide ve endüstride kabul gören standartları yakalamıştır. Bu çalışma, yazılım mimarisinin donanım özellikleriyle ne kadar senkronize edilebilirse, sistem verimliliğinin o derece artacağını kanıtlamaktadır.
 
+Assembly Dili Optimizasyonu
+
+Kritik Kod Bölümlerinde Düşük Seviyeli Performans Teknikleri
+
+Register Kullanımı  •  Komut Azaltma  •  İşlemci Yakın Optimizasyon  •  Performans Karşılaştırması
+ 
+1. Assembly Optimizasyonu Nedir?
+
+Yüksek seviyeli diller (C, C++, Rust) bir derleyici aracılığıyla makine koduna çevrilir. Derleyici genel amaçlı bir çözüm üretmek zorundadır ve her zaman en optimal sonuca ulaşamaz. Assembly optimizasyonu; gereksiz bellek erişimini, fazla komut kullanımını ve verimsiz register tahsisini elle ortadan kaldırma disiplinidir.
+ 
+Temel prensip: İşlemci bellekten değil, kendi içindeki register'lardan veri işler. Register erişimi L1 cache'ten bile 5× daha hızlıdır.
+ 
+Assembly optimizasyonunun kritik öneme sahip olduğu alanlar:
+• Ses ve video kodekleri (gerçek zamanlı sıkıştırma)
+• Kriptografi algoritmaları (AES, SHA)
+• Sinyal işleme ve DSP uygulamaları
+• Oyun motorlarının fizik ve render döngüleri
+• Gömülü sistemlerde bellek ve hız kısıtları
+ 
+2. Optimizasyon Mantığı
+
+2.1 Temel Stratejiler
+Assembly optimizasyonu birbirini tamamlayan birkaç ana strateji üzerine kuruludur:
+ 
+Strateji
+Açıklama
+Yaklaşık Hız Kazanımı
+Register'da veri tutma
+Değişkenlerin bellekte değil register'da yaşaması
+~10×
+SIMD / Vektörel komutlar
+Tek komutla paralel çoklu veri işleme
+~8×
+Dal tahmini yönlendirme
+Branch prediction hatalarını minimize etme
+~3×
+Döngü açma (unrolling)
+Branch overhead'ini azaltma
+~2×
+Komut sıralaması
+Pipeline hazard'larını önleme
+~1.5×
+ 
+2.2 İşlemci Pipeline ve Hazard Kavramı
+Modern işlemciler komutları aşamalı (pipeline) olarak işler: Fetch → Decode → Execute → Write-back. Bir komutun sonucuna bağlı bir sonraki komut bu aşamaları beklemek zorunda kalır; buna data hazard denir. İyi assembly kodu, bağımlı komutlar arasına bağımsız komutlar yerleştirerek pipeline'ı dolu tutar.
+ 
+Örnek: RAX'a bağlı ardışık iki komut pipeline'ı durdurur. Araya RBX işleyen bir komut koymak bu duraksatmayı ortadan kaldırır.
+ 
+3. Register Kullanımı
+
+3.1 x86-64 Register Hiyerarşisi
+x86-64 mimarisinde aynı fiziksel register'ın farklı boyutlarda görünümleri vardır:
+ 
+Register
+Boyut
+Açıklama
+RAX
+64-bit
+Tam genişlik, dönüş değeri / çarpma sonucu
+EAX
+32-bit
+RAX'ın alt 32 biti
+AX
+16-bit
+EAX'ın alt 16 biti
+AL / AH
+8-bit
+AX'ın düşük / yüksek baytları
+ 
+3.2 Genel Amaçlı Register'ların Rolleri
+Register
+Birincil Rol
+ABI Durumu
+RAX
+Dönüş değeri, çarpma/bölme
+Caller-saved
+RBX
+Genel veri tutma
+Callee-saved
+RCX
+Döngü sayacı, 4. parametre
+Caller-saved
+RDX
+Veri, 3. parametre
+Caller-saved
+RSI
+Kaynak adresi, 2. parametre
+Caller-saved
+RDI
+Hedef adresi, 1. parametre
+Caller-saved
+R8–R15
+Ek genel amaçlı
+R8–R9 caller, R10–R15 callee
+ 
+3.3 Register Tasarrufu Örneği
+Aşağıda aynı işlemin iki farklı versiyonu karşılaştırılmaktadır:
+ 
+KÖTÜ — Döngü değişkeni sürekli bellekten okunuyor:
+; i değişkeni her iterasyonda belleğe yazılıp okunuyor
+mov  dword [rbp-4], 0      ; i = 0 (belleğe yaz)
+mov  eax, [rbp-4]          ; bellek okuma
+add  eax, 1
+mov  [rbp-4], eax          ; bellek yazma
+ 
+İYİ — Döngü değişkeni register'da yaşıyor:
+; i değişkeni ECX register'ında tutuluyor, bellek erişimi yok
+xor  ecx, ecx              ; i = 0 (2 byte, hızlı)
+inc  ecx                   ; i++ (tek komut)
+ 
+Sonuç: Kötü versiyon 4 komut + 2 bellek erişimi kullanırken, iyi versiyon 2 komut ve sıfır bellek erişimi ile aynı işi yapar.
+ 
+4. Gereksiz Komut Azaltma
+
+4.1 XOR ile Sıfırlama
+Bir register'ı sıfırlamanın klasik yolu MOV komutu gibi görünse de XOR çok daha verimlidir:
+ 
+MOV eax, 0  →  5 byte, immediate encode gerektirir
+XOR eax, eax  →  2 byte, flag sıfırlanır, bağımlılık zinciri kırılır
+ 
+xor  eax, eax              ; Tercih edilen yöntem
+; Modern işlemciler bu kalıbı özel olarak tanır ve
+; register bağımlılığını (false dependency) temizler
+ 
+4.2 LEA ile Aritmetik
+LEA (Load Effective Address) komutu aslen adres hesaplamak için tasarlanmış olsa da çarpma ve toplama kombinasyonlarını tek komuta indirgeyebilir:
+ 
+Kötü — 2 ayrı komut:
+imul eax, ebx, 3           ; eax = ebx * 3
+add  eax, ecx              ; eax = eax + ecx
+ 
+İyi — tek komut:
+lea  eax, [ebx*3 + ecx]    ; eax = ebx*3 + ecx
+; Çarpma, toplama ve kaydetme tek döngüde biter
+ 
+4.3 CMOV ile Dal Tahmini Optimizasyonu
+Koşullu dallanmalar (if/else) branch predictor hatalarına yol açabilir. CMOV (Conditional Move) bu sorunu ortadan kaldırır:
+ 
+Kötü — koşullu dal:
+cmp  eax, ebx
+jl   use_ebx               ; Dal tahmini hatası riski
+jmp  done
+use_ebx:
+ mov  eax, ebx
+done:
+ 
+İyi — dallanmasız:
+cmp  eax, ebx
+cmovl eax, ebx             ; Dal yok, pipeline durmaz
+ 
+4.4 Döngü Açma (Loop Unrolling)
+Her döngü iterasyonunda karşılaştırma ve dallanma maliyeti vardır. Döngü gövdesini tekrarlayarak bu maliyet azaltılır:
+ 
+Kötü — her iterasyonda branch:
+loop_start:
+ add  [rdi], eax
+ add  rdi, 4
+ dec  ecx
+ jnz  loop_start          ; Her iter. branch
+ 
+İyi — 4 elemanı aynı anda:
+add  [rdi],    eax         ; eleman 0
+add  [rdi+4],  eax         ; eleman 1
+add  [rdi+8],  eax         ; eleman 2
+add  [rdi+12], eax         ; eleman 3
+; Branch overhead yok, 4 iş 4 komutta biter
+ 
+4.5 Bit Manipülasyonu Hileleri
+Bit operasyonları pahalı çarpma/bölme işlemlerinin yerine geçebilir:
+ 
+and  eax, 1                ; n % 2  (DIV yerine)
+shl  eax, 1                ; n * 2  (IMUL yerine)
+sar  eax, 1                ; n / 2  (IDIV yerine, işaretli)
+shr  eax, 1                ; n / 2  (işaretsiz)
+ 
+; 2'nin kuvveti kontrolü — dallanmasız
+test  eax, eax
+jz    not_power_of_two
+lea   ecx, [eax-1]
+test  eax, ecx             ; eax & (eax-1) == 0?
+jnz   not_power_of_two
+ 
+5. İşlemciye Yakın Optimizasyonun Avantajları
+
+5.1 Cache Locality Kontrolü
+Bellek erişim düzeni (access pattern) performansı derinden etkiler. Assembly programcısı veri yapılarını cache line sınırlarına göre hizalayabilir ve prefetch komutlarını manuel olarak yerleştirebilir:
+ 
+prefetcht0 [rsi + 256]     ; 4 cache line ilerisi
+; CPU önden yüklerken mevcut veriyi işliyoruz
+movdqu    xmm0, [rsi]      ; 16 byte yükle
+movdqu    xmm1, [rsi+16]   ; sonraki 16 byte
+ 
+5.2 SIMD ile Paralel İşlem
+SSE/AVX komut setleri tek bir komutla birden fazla veriyi işler. Bir AVX2 kaydı 256 bit = 8 adet 32-bit integer taşır:
+ 
+; 8 elemanı aynı anda karşılaştır ve maksimumu bul
+vmovdqu   ymm0, [rdi]      ; 8 × int32 yükle
+vpmaxsd   ymm0, ymm0, [rdi+32] ; 8 maksimum paralel
+vextracti128 xmm1, ymm0, 1
+vpmaxsd   xmm0, xmm0, xmm1
+; ... horizontal reduce ile tek değere indir
+ 
+SIMD: 1 komut = 8 elemanın işlemi. Skaler döngüye kıyasla ~8× hız kazanımı.
+ 
+5.3 Speculative Execution Yönlendirme
+Modern işlemciler dallanmanın hangi yöne gideceğini tahmin ederek spekülatif olarak çalışır. Programcı, tahmin başarısını artırmak için sık kullanılan yolu 'olası' (likely) olarak işaretleyebilir:
+ 
+; GCC/Clang için __builtin_expect karşılığı
+; assembly'de koşul sıralaması önemlidir
+test  rax, rax
+jz    rare_case            ; Nadir durum sona alındı
+; Sık durum kod akışında devam eder — tahmin doğru
+ 
+6. Yüksek Seviyeli Dil ile Assembly Karşılaştırması
+
+6.1 Örnek: Dizi Maksimumu Bulma
+C kodu (optimizasyonsuz)
+int find_max(int* arr, int n) {
+   int max = arr[0];
+   for (int i = 1; i < n; i++)
+       if (arr[i] > max) max = arr[i];
+   return max;
+}
+ 
+gcc -O0 çıktısı (yaklaşık)
+; Her iterasyonda bellek erişimi, ~18 komut
+mov   eax, [rdi]           ; max = arr[0]
+.loop:
+ mov   ecx, [rdi+rdx*4]   ; arr[i] bellek okuma
+ cmp   ecx, eax
+ jle   .skip
+ mov   eax, ecx           ; koşullu dal
+.skip:
+ inc   rdx
+ cmp   rdx, rsi
+ jl    .loop
+ 
+gcc -O2 çıktısı (derleyici optimizasyonu)
+; CMOV ile dallanmasız, ~7 komut/iter
+mov   eax, [rdi]           ; max = arr[0]
+.loop:
+ mov   ecx, [rdi+rdx*4]
+ cmp   ecx, eax
+ cmovg eax, ecx           ; branch yok!
+ inc   rdx
+ cmp   rdx, rsi
+ jl    .loop
+ 
+Elle optimize edilmiş SIMD assembly
+; 8 elemanı paralel işle — ~1 komut / 8 eleman
+vmovdqu  ymm0, [rdi]       ; 8 × int yükle
+vpmaxsd  ymm0, ymm0, [rdi+32] ; 8 max paralel
+vextracti128 xmm1, ymm0, 1
+vpmaxsd  xmm0, xmm0, xmm1
+; ... phminposuw ile son reduce
+ 
+6.2 Performans Ölçüm Tablosu
+1000 elemanlı dizi için yaklaşık değerler (modern x86-64 işlemci):
+ 
+Yöntem
+Komut / iter
+Süre (~1K elem)
+Bellek erişimi
+C — gcc -O0
+~18
+~50 ns
+Yüksek
+C — gcc -O2
+~7
+~18 ns
+Orta
+Elle asm (skaler)
+~4
+~10 ns
+Düşük
+Elle asm (SIMD/AVX2)
+~1 / 8 elem
+~6 ns
+Çok düşük
+ 
+6.3 Ne Zaman Assembly Kullanmak Gerekir?
+ 
+Modern derleyiciler (-O2/-O3) rutin kod için assembly'e çok yakın sonuçlar üretir. Elle optimizasyon için net bir gerekçe olmadan başvurmak gereksiz karmaşıklık yaratır.
+ 
+Assembly optimizasyonunun tercih edildiği durumlar:
+• Derleyicinin statik analiz yapamadığı dinamik bellek erişim desenleri
+• SIMD intrinsic'lerin yetersiz kaldığı yüksek hacimli veri dönüşümleri
+• Çok sıkı döngüler: ses kodekleri, video filtreleri, kriptografi çekirdeği
+• Gömülü sistemlerde her bayt ve her döngünün kritik olduğu ortamlar
+• Derleyicinin üretemediği özel işlemci komutlarının kullanımı
+ 
+7. Özet
+
+Assembly optimizasyonu; işlemci mimarisini, bellek hiyerarşisini ve komut kümesini derin biçimde anlamayı gerektiren bir disiplindir. Temel ilkeler şunlardır:
+ 
+• : Sık kullanılan değerler daima register'da yaşamalı
+• : Her [mem] okuma/yazma bir gecikme kaynağıdır
+• : CMOV ve dallanmasız algoritmalar pipeline'ı dolu tutar
+• : Vektörel komutlar paralel veri işlemeyi mümkün kılar
+• : Sıralı erişim, atlama erişiminden çok daha hızlıdır
+• : -O2 çıktısını incele; elle yazmadan önce ne ürettiğini bil
+ 
+Altın kural: Önce profilleme yapın, sonra optimize edin. Optimizasyon zamanınızın %80'i, kodun %20'lik kritik bölümüne ayrılmalıdır.
+Assembly Dili Optimizasyonu
