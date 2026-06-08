@@ -2751,3 +2751,21 @@ Assembly optimizasyonu; işlemci mimarisini, bellek hiyerarşisini ve komut küm
 * `-O2` çıktısını incele; elle yazmadan önce ne ürettiğini bil.
 
 > **Altın kural:** Önce profilleme yapın, sonra optimize edin. Optimizasyon zamanınızın %80'i, kodun %20'lik kritik bölümüne ayrılmalıdır.
+-----------------------------------------------------------------------------------------
+Veri Yapısı Optimizasyonu 
+1. Giriş
+Veri yapıları, programların veriyi saklama ve işleme biçimini belirleyen temel yapılardır. Bir veri yapısının seçimi yalnızca bellek kullanımını değil, aynı zamanda işlem süresini ve sistem performansını da doğrudan etkiler.
+2. Bellek Yerleşimi ve Performans
+Modern işlemciler verilere erişirken önbellek (cache) kullanır. Bellekte birbirine yakın konumlarda tutulan veriler daha hızlı erişim sağlar. Bu nedenle veri yapılarının bellek yerleşimi performans açısından kritik öneme sahiptir.
+3. Cache-Friendly Veri Yapıları
+Cache-friendly veri yapıları, verileri ardışık bellek bölgelerinde tutarak işlemcinin önbelleğini daha verimli kullanır. Array (dizi) yapıları bunun en yaygın örneğidir. Ardışık erişimlerde cache miss oranı azalır ve işlem süresi kısalır.
+4. Linked List ve Array Performans Karşılaştırması
+Array yapılarında elemanlara indeks üzerinden O(1) zamanda erişilebilir. Linked list yapılarında ise belirli bir elemana ulaşmak için O(n) tarama gerekir. Linked list ekleme ve silme işlemlerinde avantaj sağlayabilse de cache kullanımının zayıf olması nedeniyle pratikte çoğu zaman daha yavaştır.
+5. Bellek Erişim Düzeni
+Sıralı (sequential) erişim, rastgele (random) erişime göre daha yüksek performans sağlar. Çünkü işlemci önbelleği ve donanımsal prefetch mekanizmaları ardışık erişimleri daha verimli işler.
+6. Veri Yapılarının İşlem Süresine Etkisi
+Uygun veri yapısının seçimi algoritmaların zaman karmaşıklığını önemli ölçüde etkiler. Örneğin arama işlemlerinde hash table ortalama O(1) performans sunarken, sıralı listelerde O(n) süre gerekebilir.
+7. Optimizasyon Önerileri
+- Mümkün olduğunda ardışık bellek kullanan veri yapıları tercih edilmelidir. - Gereksiz bellek tahsislerinden kaçınılmalıdır. - Büyük veri kümelerinde cache davranışı analiz edilmelidir. - Veri erişim desenleri uygulamanın ihtiyaçlarına göre tasarlanmalıdır.
+8. Sonuç
+Veri yapısı optimizasyonu yalnızca teorik karmaşıklık analizine değil, donanım seviyesindeki bellek davranışlarına da bağlıdır. Cache-friendly tasarımlar ve uygun veri yapısı seçimi, uygulamaların daha hızlı ve verimli çalışmasını sağlar.
